@@ -1,4 +1,7 @@
-module load cuda/11.0
-module load cudnn/8-cuda-11.0
+module load cuda/10.2
+module load cudnn/7.6.5-cuda-10.2
 module load python/3.9.1
+source ~/venv/fastflow/bin/activate
+
+export PATH=$PATH:~/misc/bin
 
