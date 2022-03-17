@@ -9,15 +9,19 @@ namespace {
 
 template <typename scalar_t>
 __global__ void cinc_cuda_inverse_kernel(
-    const torch::PackedTensorAccessor<scalar_t,3,torch::RestrictPtrTraits,size_t> input,
+    const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> input,
     const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> kernel,
-    torch::PackedTensorAccessor<scalar_t,3,torch::RestrictPtrTraits,size_t> output) {
+    torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> output/*, int diag*/) {
   //batch index
   const int n = blockIdx.y;
   // column index
   const int c = blockIdx.x * blockDim.x + threadIdx.x;
 
   // TODO: Compute inverse in a block here
+  // Each thread will compute one entry of the output
+  // We need to compute i, j based on the diagonal and c (uid for the thread)
+  
+  // output[i][j] = input[i][j] - kernel*output[i:i+k][j:j+k]
 
 }
 
@@ -31,15 +35,22 @@ std::vector<torch::Tensor> cinc_cuda_inverse(
   const auto batch_size = input.size(0);
   const auto state_size = input.size(1);
 
+  // for(int i = 1; i <= n; i++) {
+  // all elements of the ith diagonal must be computed in parallel
+
   const int threads = 1024;
   const dim3 blocks((state_size + threads - 1) / threads, batch_size);
 
   AT_DISPATCH_FLOATING_TYPES(input.type(), "cinc_inverse_cuda", ([&] {
     cinc_cuda_inverse_kernel<scalar_t><<<blocks, threads>>>(
-        input.packed_accessor<scalar_t,3,torch::RestrictPtrTraits,size_t>(),
+        input.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
         kernel.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
-        output.packed_accessor<scalar_t,3,torch::RestrictPtrTraits,size_t>());
+        output.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>()/*, i*/);
   }));
+
+  // synchronize all threads
+
+  // }
 
   return {output};
 }
