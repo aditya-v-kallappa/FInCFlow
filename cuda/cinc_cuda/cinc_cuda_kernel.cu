@@ -21,8 +21,11 @@ __global__ void cinc_cuda_inverse_kernel(
   // Each thread will compute one entry of the output
   // We need to compute i, j based on the diagonal and c (uid for the thread)
   
-  // output[i][j] = input[i][j] - kernel*output[i:i+k][j:j+k]
-
+  // for (int a = k; a >= 0; a--) {
+  //    for (int b = k; b >= 0; b--) {
+  //        output[i][j] = input[i][j] - kernel*output[i-a][j-b]
+  //    }
+  // }
 }
 
 } // namespace
