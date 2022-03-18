@@ -63,6 +63,8 @@ std::vector<torch::Tensor> cinc_cuda_inverse(
   }));
 
   // synchronize all threads
+  // cudaDeviceSynchronize();
+
 
   // }
 
