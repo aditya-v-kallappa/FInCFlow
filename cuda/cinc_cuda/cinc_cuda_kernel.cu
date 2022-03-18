@@ -55,8 +55,6 @@ std::vector<torch::Tensor> cinc_cuda_inverse(
 
   // assuming batch size 1 for initial implementation
   // all the tensors above are 2D only
-  // NOTE: Something is wrong for n = 3 and k = 2, which i am not able to figure out.
-  // otherwise seems working
 
   const auto n = output.size(0); // assuming height and width to be the same
   const auto k = kernel.size(0); // assuming square kernel
