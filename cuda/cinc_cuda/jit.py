@@ -6,8 +6,8 @@ cinc_cuda = load(
     'cinc_cuda', ['cinc_cuda.cpp', 'cinc_cuda_kernel.cu'], verbose=True)
 # help(cinc_cuda)
 
-
-input = torch.tensor([[1,2,3,4],
+input = torch.tensor([
+                      [1,2,3,4],
                       [5,6,7,8],
                       [9,10,11,12],
                       [13,14,15,16]
@@ -23,4 +23,8 @@ output = torch.zeros((4,4), dtype=torch.float).cuda()
 
 cinc_cuda.inverse(input, kernel, output)
 
+
+
 print(output)
+
+# print(torch.nn.functional.conv2d(output.unsqueeze(1), kernel.unsqueeze(1), padding=(1,0,0,1)))
