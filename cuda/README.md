@@ -7,7 +7,7 @@ For now only the boilerplate code is added. Inverse has to be implemented in the
 1. download the ninja build binary (https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-linux.zip) and put it under misc/bin (under home folder) 
 2. install pytorch lts (1.8.2), with cuda 10.2
 3. source the env.sh file
-4. in the cinc_cuda directory, run python jit.py
+4. in the cinc_cuda directory, run python test_cuda_kernel.py
 5. from cinc_cuda import inverse
 
 ## References
