@@ -1,5 +1,6 @@
 #include <torch/extension.h>
 
+#include <stdio.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 
@@ -11,11 +12,11 @@ template <typename scalar_t>
 __global__ void cinc_cuda_inverse_kernel(
     const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> input,
     const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> kernel,
-    torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> output, int d) {
+    torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> output, int k, int d) {
   
   const int tid = blockIdx.x * blockDim.x + threadIdx.x;   // thread id
   const auto n  = output.size(0); // assuming height and width to be the same
-  const auto k  = kernel.size(0); // assuming square kernel
+  // NOTE: For some reason kernel.size(0) doesnot work correctly here
 
   if (tid < n) { // if we allocated more threads, exess threads dont do anything
 
@@ -35,6 +36,9 @@ __global__ void cinc_cuda_inverse_kernel(
     for (int a = 0; a < k; a++) {
        for (int b = 0; b < k; b++) {
           if ( i-(k-1)+a >=0 && j-(k-1)+b >=0 && !((a==k-1) && (b==k-1))) {
+            // # if __CUDA_ARCH__ >= 200
+            //   printf("%d %d %d %d %d %d \n",i,j,a,b,n,k);
+            // #endif
             output[i][j] -= kernel[a][b]*output[i-(k-1)+a][j-(k-1)+b];
           }
        }
@@ -57,6 +61,8 @@ std::vector<torch::Tensor> cinc_cuda_inverse(
   const auto n = output.size(0); // assuming height and width to be the same
   const auto k = kernel.size(0); // assuming square kernel
 
+  // printf("%d %d", n,k);
+
   for (int d = 1; d <= 2*n-1; d++) { // Iterating over diagonal index
 
 
@@ -65,13 +71,14 @@ std::vector<torch::Tensor> cinc_cuda_inverse(
     if (d > n) {
       threads = 2*n-d;
     }
+    
     const int blocks = 1; // use multiple blocks if 2d-1 > threads
 
     AT_DISPATCH_FLOATING_TYPES(input.type(), "cinc_inverse_cuda", ([&] {
       cinc_cuda_inverse_kernel<scalar_t><<<blocks, threads>>>(
           input.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
           kernel.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
-          output.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(), d);
+          output.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(), k, d);
     }));
 
     // synchronize all threads
