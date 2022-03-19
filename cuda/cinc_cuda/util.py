@@ -33,7 +33,6 @@ def test_inverse(input, kernel):
     print("Output : \n", output.cpu().numpy())
 
     # compute convolution of output with kernel and see if we get the input back
-    print(m,n,k)
     error = (input.reshape(m,1,n,n) - conv2d(pad(output.reshape(m,1,n,n), (k-1,0,k-1,0), "constant", 0), kernel.reshape(1,1,k,k))).abs().sum().item()
 
     print(f"Error : {error}")

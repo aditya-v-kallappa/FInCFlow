@@ -24,7 +24,7 @@ __global__ void cinc_cuda_inverse_kernel(
     // Compute the index from the dth diagonal assigned to the thread
     int h, i, j;
     h = tid % m; // batch index encoded in lower indices modulo batchsize
-    tid = (tid - h) / m; // remaining part of tid has the index along the diagonald
+    tid = (tid - h) / m; // remaining part of tid has the index along the diagonal
     if (d <= n) {
         i = d - 1 - tid;
         j = tid;
