@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def _reverse(x, conv_w):
+def _reverse(x, conv_w=None):
     """
     TO be implemented in CUDA
     """
@@ -60,22 +60,10 @@ class PaddedConv2d(nn.Module):
         nn.init.normal_(self.conv.weight.data, mean=0.0, std=0.05)
         if self.conv.bias is not None:
             nn.init.constant_(self.conv.bias, 0)
-        
-        for c_out in range(self.conv.weight.data.shape[0]):
-            self.conv.weight.data[c_out, c_out, -1, -1] = 1.0
-            self.conv.weight.data[c_out, c_out+1:, -1, -1] = 0.0
-        self.conv = nn.utils.weight_norm(self.conv)
+        self.mask = self.get_mask()
+        self.conv.weight.data *= self.mask
 
-        if self.order == 'TR':
-            self.conv.weight.data = torch.flip(self.conv.weight.data, [3])
-        
-        elif self.order == 'BL':
-            self.conv.weight.data = torch.flip(self.conv.weight.data, [2])
-        
-        elif self.order == 'BR':
-            self.conv.weight.data = torch.flip(self.conv.weight.data, [2, 3])
-    
-    def reset_gradients(self):
+    def get_mask(self):
         mask = torch.ones_like(self.conv.weight)
         for c_out in range(self.conv.weight.data.shape[0]):
             mask[c_out, c_out, -1, -1] = 0.0
@@ -90,7 +78,10 @@ class PaddedConv2d(nn.Module):
         elif self.order == 'BR':
             mask = torch.flip(mask, [2, 3])
         
-        self.conv.weight.grad = self.conv.weight.grad * mask
+        return mask
+
+    def reset_gradients(self):
+        self.conv.weight.grad *= self.conv.weight.grad * self.mask
 
         
 
@@ -148,18 +139,19 @@ class Conv1x1(nn.Module):
     def forward(self, x):
         B, C, H, W = x.size()
         out = self.conv(x)
-        _, logdet = torch.slogdet(self.conv.weight.data)
-        logdet = logdet * H * W
+        _, logdet = torch.slogdet(self.conv.weight.data.squeeze())
+        logdet *= H * W
         return out, logdet 
 
 
     def inverse(self, x):
         B, C, H, W = x.size()
         bias = 0.0 if self.conv.bias is None else self.conv.bias
-        weight_inv = self.weight.data.squeeze().inverse().view(self.in_channels, self.out_channels, 1, 1)
-        out = F.conv2d(x - bias, weight_inv)
-        _, logdet = torch.slogdet(self.weight_inv)
-        logdet = logdet * H * W
+        bias = bias.view(1, -1, 1, 1)
+        weight_inv = self.conv.weight.data.squeeze().inverse().view(self.in_channels, self.out_channels, 1, 1)
+        out = F.conv2d(torch.sub(x, bias), weight_inv)
+        _, logdet = torch.slogdet(weight_inv)
+        logdet *= H * W
         return out, logdet
 
 
