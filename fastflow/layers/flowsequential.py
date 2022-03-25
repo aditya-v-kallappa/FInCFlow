@@ -4,6 +4,7 @@ from .flowlayer import ModifiedGradFlowLayer
 from .flowlayer import PreprocessingFlowLayer
 from .activations import FlowActivationLayer
 from .selfnorm import SelfNormConv
+from .conv import PaddedConv2d
 
 class FlowSequential(nn.Module):
     def __init__(self, base_distribution, *modules):
@@ -25,7 +26,8 @@ class FlowSequential(nn.Module):
                     input, context, compute_expensive=compute_expensive)
             else:
                 output, layer_logdet = module(input, context)
-
+            if not isinstance(output, torch.Tensor):
+                print("Inside Forward", type(x))
             logdet += layer_logdet
 
             # Important to keep track of module input/output for logdet

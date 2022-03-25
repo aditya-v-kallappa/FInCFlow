@@ -1,0 +1,21 @@
+ninja_required_version = 1.3
+cxx = c++
+
+cflags = -DTORCH_EXTENSION_NAME=conv2d_backward -DTORCH_API_INCLUDE_EXTENSION_H -DPYBIND11_COMPILER_TYPE=\"_gcc\" -DPYBIND11_STDLIB=\"_libstdcpp\" -DPYBIND11_BUILD_ABI=\"_cxxabi1011\" -isystem /home/aditya.kallappa/fastflow/lib/python3.9/site-packages/torch/include -isystem /home/aditya.kallappa/fastflow/lib/python3.9/site-packages/torch/include/torch/csrc/api/include -isystem /home/aditya.kallappa/fastflow/lib/python3.9/site-packages/torch/include/TH -isystem /home/aditya.kallappa/fastflow/lib/python3.9/site-packages/torch/include/THC -isystem /home/aditya.kallappa/anaconda3/envs/py39/include/python3.9 -D_GLIBCXX_USE_CXX11_ABI=0 -fPIC -std=c++14
+post_cflags = 
+ldflags = -shared -L/home/aditya.kallappa/fastflow/lib/python3.9/site-packages/torch/lib -lc10 -ltorch_cpu -ltorch -ltorch_python
+
+rule compile
+  command = $cxx -MMD -MF $out.d $cflags -c $in -o $out $post_cflags
+  depfile = $out.d
+  deps = gcc
+
+rule link
+  command = $cxx $in $ldflags -o $out
+
+build conv2d_backward.o: compile /home/aditya.kallappa/Research/NormalizingFlows/FastFlow/fastflow/utils/convbackward/conv2d_backward.cpp
+
+build conv2d_backward.so: link conv2d_backward.o
+
+default conv2d_backward.so
+

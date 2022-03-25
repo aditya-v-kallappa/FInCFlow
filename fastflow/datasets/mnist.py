@@ -1,7 +1,7 @@
 import torch
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
-from snf.train.datatransforms import ToTensorNoNorm
+from train.datatransforms import ToTensorNoNorm
 
 def load_data(data_aug=False, **kwargs):
     transform_list = []

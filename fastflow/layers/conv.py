@@ -1,15 +1,16 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from utils.solve_mc import solve
+from .flowlayer import FlowLayer
 
+# def _reverse(x, conv_w=None):
+#     """
+#     TO be implemented in CUDA
+#     """
+#     return x
 
-def _reverse(x, conv_w=None):
-    """
-    TO be implemented in CUDA
-    """
-    return x
-
-class PaddedConv2d(nn.Module):
+class PaddedConv2d(FlowLayer):
     """
     Conv2d with shift operation.
     A -> top
@@ -19,6 +20,7 @@ class PaddedConv2d(nn.Module):
     """
 
     def __init__(self, in_channels, out_channels, kernel_size, bias=True, order='TL'):
+        super().__init__()
         # assert len(stride) == 2
         assert len(kernel_size) == 2
         assert order in {'TL', 'TR', 'BL', 'BR'}, 'unknown order: {}'.format(order)
@@ -27,7 +29,7 @@ class PaddedConv2d(nn.Module):
         else:
             assert kernel_size[0] % 2 == 1, 'kernel height cannot be even number: {}'.format(kernel_size)
         
-        
+        self.kernel_size = kernel_size
         self.order = order
 
         K_H, K_W = kernel_size[0], kernel_size[1]
@@ -51,7 +53,7 @@ class PaddedConv2d(nn.Module):
         else:
             raise ValueError('unknown order: {}'.format(order))
 
-        super(PaddedConv2d, self).__init__()
+        
 
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, bias=bias)
         self.reset_parameters()
@@ -61,7 +63,18 @@ class PaddedConv2d(nn.Module):
         if self.conv.bias is not None:
             nn.init.constant_(self.conv.bias, 0)
         self.mask = self.get_mask()
-        self.conv.weight.data *= self.mask
+        for c_out in range(self.conv.weight.data.shape[0]):
+            self.conv.weight.data[c_out, c_out, -1, -1] = 1.0
+            self.conv.weight.data[c_out, c_out+1:, -1, -1] = 0.0
+        
+        if self.order == 'TR':
+            self.conv.weight.data = torch.flip(self.conv.weight.data, [3])
+        
+        elif self.order == 'BL':
+            self.conv.weight.data = torch.flip(self.conv.weight.data, [2])
+        
+        elif self.order == 'BR':
+            self.conv.weight.data = torch.flip(self.conv.weight.data, [2, 3])
 
     def get_mask(self):
         mask = torch.ones_like(self.conv.weight)
@@ -81,10 +94,33 @@ class PaddedConv2d(nn.Module):
         return mask
 
     def reset_gradients(self):
-        self.conv.weight.grad *= self.conv.weight.grad * self.mask
+        self.conv.weight.grad *= self.conv.weight.grad * self.mask.to(self.conv.weight.grad.device)
 
+    
+    def forward(self, x, context=None, compute_expensive=None):
+        x = F.pad(x, self.pad)
+        out = self.conv(x)
+        logdet = 0.0
+        return out, logdet
+
+    def reverse(self, x, context=None, compute_expensive=None):
+        if self.order == 'TR':
+            x = torch.flip(x, [3])
         
+        elif self.order == 'BL':
+            x = torch.flip(x, [2])
+        
+        elif self.order == 'BR':
+            x = torch.flip(x, [2, 3])
+        
+        y = solve(x, self.conv.weight.data, self.kernel_size)
+        logdet = 0
+        return y, logdet
 
+    def logdet(self, x, context=None):
+        return 0.0
+
+    
     # def init(self, x, init_scale=1.0):
     #     with torch.no_grad():
     #         # [batch, n_channels, H, W]
@@ -101,31 +137,12 @@ class PaddedConv2d(nn.Module):
     #             self.conv.bias.add_(-mean).mul_(inv_stdv)
     #         return self(x)
 
-    def forward(self, x):
-        x = F.pad(x, self.pad)
-        out = self.conv(x)
-        logdet = 0.0
-        return out, logdet
-
-    def inverse(self, x):
-        if self.order == 'TR':
-            x = torch.flip(x, [3])
-        
-        elif self.order == 'BL':
-            x = torch.flip(x, [2])
-        
-        elif self.order == 'BR':
-            x = torch.flip(x, [2, 3])
-        
-        y = _reverse(x)
-        logdet = 0
-        return y, logdet
-
     
 
 class Conv1x1(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size=1, bias=True):
         super(Conv1x1, self).__init__()
+        assert in_channels == out_channels, "Input and Output are not same"
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = (kernel_size, kernel_size) if kernel_size == 1 else kernel_size
@@ -144,11 +161,11 @@ class Conv1x1(nn.Module):
         return out, logdet 
 
 
-    def inverse(self, x):
+    def reverse(self, x):
         B, C, H, W = x.size()
         bias = 0.0 if self.conv.bias is None else self.conv.bias
         bias = bias.view(1, -1, 1, 1)
-        weight_inv = self.conv.weight.data.squeeze().inverse().view(self.in_channels, self.out_channels, 1, 1)
+        weight_inv = self.conv.weight.data.squeeze().reverse().view(self.in_channels, self.out_channels, 1, 1)
         out = F.conv2d(torch.sub(x, bias), weight_inv)
         _, logdet = torch.slogdet(weight_inv)
         logdet *= H * W
@@ -184,8 +201,8 @@ class Conv1x1(nn.Module):
 #     Masked Convolutional Flow
 #     """
 
-#     def __init__(self, in_channels, kernel_size, hidden_channels=None, s_channels=None, order='A', scale=True, inverse=False):
-#         super(FastFlow, self).__init__(inverse)
+#     def __init__(self, in_channels, kernel_size, hidden_channels=None, s_channels=None, order='A', scale=True, reverse=False):
+#         super(FastFlow, self).__init__(reverse)
 #         self.in_channels = in_channels
 #         self.scale = scale
 #         if hidden_channels is None:

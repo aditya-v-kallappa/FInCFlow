@@ -1,0 +1,33 @@
+==========================================
+SLURM_JOB_ID = 635376
+SLURM_NODELIST = gnode72
+SLURM_JOB_GPUS = 0
+==========================================
+Cuda Available?  True
+Training the model
+Emitting ninja build file /home/aditya.kallappa/Research/NormalizingFlows/FastFlow/fastflow/utils/convbackward/torch_cpp_extensions/build.ninja...
+Building extension module conv2d_backward...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+ninja: no work to do.
+wandb: Currently logged in as: fast-flow (use `wandb login --relogin` to force relogin)
+Loading extension module conv2d_backward...
+wandb: Tracking run with wandb version 0.12.11
+wandb: Run data is saved locally in /home/aditya.kallappa/Research/NormalizingFlows/FastFlow/fastflow/wandb/run-20220324_141241-f8gum1t2
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run 2L-16K Glow Exact MNIST
+wandb: ⭐️ View project at https://wandb.ai/fast-flow/mnist-test-project
+wandb: 🚀 View run at https://wandb.ai/fast-flow/mnist-test-project/runs/f8gum1t2
+[34m[1mwandb[0m: [33mWARNING[0m Saving files without folders. If you want to preserve sub directories pass base_path to wandb.save, i.e. wandb.save("/mnt/folder/file.h5", base_path="/mnt")
+[34m[1mwandb[0m: [33mWARNING[0m Saving files without folders. If you want to preserve sub directories pass base_path to wandb.save, i.e. wandb.save("/mnt/folder/file.h5", base_path="/mnt")
+[34m[1mwandb[0m: [33mWARNING[0m Saving files without folders. If you want to preserve sub directories pass base_path to wandb.save, i.e. wandb.save("/mnt/folder/file.h5", base_path="/mnt")
+[34m[1mwandb[0m: [33mWARNING[0m Saving files without folders. If you want to preserve sub directories pass base_path to wandb.save, i.e. wandb.save("/mnt/folder/file.h5", base_path="/mnt")
+[34m[1mwandb[0m: [33mWARNING[0m Saving files without folders. If you want to preserve sub directories pass base_path to wandb.save, i.e. wandb.save("/mnt/folder/file.h5", base_path="/mnt")
+[34m[1mwandb[0m: [33mWARNING[0m Saving files without folders. If you want to preserve sub directories pass base_path to wandb.save, i.e. wandb.save("/mnt/folder/file.h5", base_path="/mnt")
+[34m[1mwandb[0m: [33mWARNING[0m Saving files without folders. If you want to preserve sub directories pass base_path to wandb.save, i.e. wandb.save("/mnt/folder/file.h5", base_path="/mnt")
+[34m[1mwandb[0m: [33mWARNING[0m Saving files without folders. If you want to preserve sub directories pass base_path to wandb.save, i.e. wandb.save("/mnt/folder/file.h5", base_path="/mnt")
+[34m[1mwandb[0m: [33mWARNING[0m Saving files without folders. If you want to preserve sub directories pass base_path to wandb.save, i.e. wandb.save("/mnt/folder/file.h5", base_path="/mnt")
+[34m[1mwandb[0m: [33mWARNING[0m Saving files without folders. If you want to preserve sub directories pass base_path to wandb.save, i.e. wandb.save("/mnt/folder/file.h5", base_path="/mnt")
+[34m[1mwandb[0m: [33mWARNING[0m Saving files without folders. If you want to preserve sub directories pass base_path to wandb.save, i.e. wandb.save("/mnt/folder/file.h5", base_path="/mnt")
+[34m[1mwandb[0m: [33mWARNING[0m Saving files without folders. If you want to preserve sub directories pass base_path to wandb.save, i.e. wandb.save("/mnt/folder/file.h5", base_path="/mnt")
+[34m[1mwandb[0m: [33mWARNING[0m Saving files without folders. If you want to preserve sub directories pass base_path to wandb.save, i.e. wandb.save("/mnt/folder/file.h5", base_path="/mnt")
+slurmstepd: error: *** JOB 635376 ON gnode72 CANCELLED AT 2022-03-24T15:12:28 DUE TO TIME LIMIT ***

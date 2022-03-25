@@ -15,10 +15,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.modules.utils import _pair
 
-from snf.layers.flowlayer import FlowLayer, mark_expensive, \
+from .flowlayer import FlowLayer, mark_expensive, \
     ModifiedGradFlowLayer
-from snf.utils.toeplitz import get_sparse_toeplitz, get_toeplitz_idxs
-from snf.utils.convbackward import conv2d_backward
+from utils.toeplitz import get_sparse_toeplitz, get_toeplitz_idxs
+from utils.convbackward import conv2d_backward
 
 
 @lru_cache(maxsize=128)

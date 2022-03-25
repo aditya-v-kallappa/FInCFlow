@@ -21,6 +21,7 @@ class FlowLayer(nn.Module, metaclass=ABCMeta):
     @abstractmethod
     def logdet(self, input, context=None):
         pass
+        
 
 
 class ModifiedGradFlowLayer(FlowLayer):

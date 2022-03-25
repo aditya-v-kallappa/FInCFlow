@@ -3,7 +3,7 @@ import torch.utils.data as data_utils
 from torch.utils.data import Dataset
 import torchvision
 from torchvision import transforms
-from snf.train.datatransforms import ToTensorNoNorm
+from train.datatransforms import ToTensorNoNorm
 import tarfile
 import os
 import math
