@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+# from utils.paddedconvbackward.solve_seq 
 from utils.solve_mc import solve
 from .flowlayer import FlowLayer
 
@@ -114,6 +115,9 @@ class PaddedConv2d(FlowLayer):
             x = torch.flip(x, [2, 3])
         
         y = solve(x, self.conv.weight.data, self.kernel_size)
+        # conv_w_np = self.conv.weight.data.cpu().detach().numpy()
+        # x_np = x.cpu().detach().numpy()
+        # ys = solve_seq.solve(x_np, conv_w_np, self.kernel_size)
         logdet = 0
         return y, logdet
 

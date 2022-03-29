@@ -11,12 +11,7 @@ except:
 from train.statsrecorder import StatsRecorder
 from layers.conv import PaddedConv2d
 
-from datetime import datetime
 
-now = datetime.now()
-
-# dd/mm/YY HH/MM/SS
-run_name = now.strftime("%d:%m:%Y %H:%M:%S")
 
 def clear_grad(module):
     if isinstance(module, PaddedConv2d):
@@ -28,24 +23,24 @@ def clear_grad(module):
 
 
 default_config = {
-        'name': f'FastFlow_MNIST_{run_name}',
+        'name': 'FastFlow_MNIST',
         'notes': None,
         'wandb': True,
-        'wandb_project': 'fast-flow-run',
+        'wandb_project': 'fast-flow-run-wd',
         'wandb_entity': 'fast-flow',
         'log_timing': False,
         'eval_train': False,
         'max_eval_ex': float('inf'),
         'log_interval': 100,
-        'sample_epochs': 10_000,
-        'vis_epochs': 10_000,
-        'n_samples': 100,
+        'sample_epochs': 100,
+        'vis_epochs': 100,
+        'n_samples': 1,
         'sample_dir': 'samples',
-        'epochs': 10_000,
-        'grad_clip_norm': 1,#None
+        'epochs': 100,
+        'grad_clip_norm': None,
         'eval_epochs': 1,
-        'lr': 1e-3,
-        'warmup_epochs': 10,
+        'lr': 1e-5,
+        'warmup_epochs': 0,
         'modified_grad': True,
         'add_recon_grad': True,
         'sample_true_inv': False,
@@ -129,8 +124,8 @@ class Experiment:
                     # Checkpoint model
                     self.save()
 
-            # if e < 5 or e == 10 or e % self.config['sample_epochs'] == 0:
-            #     self.sample(e)
+            if e < 5 or e == 10 or e % self.config['sample_epochs'] == 0:
+                self.sample(e)
 
             if e % self.config['vis_epochs'] == 0:
                 self.filter_vis()

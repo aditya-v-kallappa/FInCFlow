@@ -3,7 +3,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import torch.nn as nn
 
-#torch.random.manual_seed(10)
+torch.random.manual_seed(10)
 
 def solve_parallel(x, conv_w, k_size):
     B, C, H, W = x.shape
