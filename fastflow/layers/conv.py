@@ -25,10 +25,10 @@ class PaddedConv2d(FlowLayer):
         # assert len(stride) == 2
         assert len(kernel_size) == 2
         assert order in {'TL', 'TR', 'BL', 'BR'}, 'unknown order: {}'.format(order)
-        if order in {'TL', 'TR'}:
-            assert kernel_size[1] % 2 == 1, 'kernel width cannot be even number: {}'.format(kernel_size)
-        else:
-            assert kernel_size[0] % 2 == 1, 'kernel height cannot be even number: {}'.format(kernel_size)
+        # if order in {'TL', 'TR'}:
+        #     assert kernel_size[1] % 2 == 1, 'kernel width cannot be even number: {}'.format(kernel_size)
+        # else:
+        #     assert kernel_size[0] % 2 == 1, 'kernel height cannot be even number: {}'.format(kernel_size)
         
         self.kernel_size = kernel_size
         self.order = order
@@ -107,14 +107,20 @@ class PaddedConv2d(FlowLayer):
     def reverse(self, x, context=None, compute_expensive=None):
         if self.order == 'TR':
             x = torch.flip(x, [3])
+            y = solve(x, torch.flip(self.conv.weight.data, [3]), self.kernel_size)
+            y = torch.flip(y, [3])
         
         elif self.order == 'BL':
             x = torch.flip(x, [2])
+            y = solve(x, torch.flip(self.conv.weight.data, [2]), self.kernel_size)
+            y = torch.flip(y, [2])
         
         elif self.order == 'BR':
             x = torch.flip(x, [2, 3])
-        
-        y = solve(x, self.conv.weight.data, self.kernel_size)
+            y = solve(x, torch.flip(self.conv.weight.data, [2, 3]), self.kernel_size)
+            y = torch.flip(y, [2, 3])
+        else:
+            y = solve(x, self.conv.weight.data, self.kernel_size)
         # conv_w_np = self.conv.weight.data.cpu().detach().numpy()
         # x_np = x.cpu().detach().numpy()
         # ys = solve_seq.solve(x_np, conv_w_np, self.kernel_size)

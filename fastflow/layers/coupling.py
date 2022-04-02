@@ -63,12 +63,7 @@ class Coupling(FlowLayer):
                                  Conv2dZero(width, n_channels))
 
     def get_xs_logs_t(self, x, context=None):
-        assert (context is not None) == self.uses_context
-        if not isinstance(x, torch.Tensor):
-            print(type(self.half_channels), self.half_channels)
-            print(type(x))
-            print(x)
-        
+        assert (context is not None) == self.uses_context       
         x1 = x[:, :self.half_channels, :, :]
         x2 = x[:, self.half_channels:, :, :]
 
@@ -85,8 +80,6 @@ class Coupling(FlowLayer):
         return x1, x2, log_s, t
 
     def forward(self, input, context=None):
-        if not isinstance(input, torch.Tensor):
-            print("Inside Forward", type(input))
         x1, x2, log_s, t = self.get_xs_logs_t(input, context)
 
         z2 = x2 * torch.exp(log_s) + t

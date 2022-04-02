@@ -60,7 +60,7 @@ def main():
         'eval_epochs': 1,
         'sample_epochs': 1,
         'log_interval': 100,
-        'lr': 1e-5,
+        'lr': 1e-3,
         'num_blocks': 3,
         'block_size': 32,
         'batch_size': 80,
@@ -74,7 +74,9 @@ def main():
         'sample_true_inv': False,
         'plot_recon': False,
         'grad_clip_norm': None,
-        'warmup_epochs': 10
+        'warmup_epochs': 10,
+        'dataset': 'CIFAR',
+        'run_name': f'{run_name}'
     }
 
     train_loader, val_loader, test_loader = load_data(data_aug=True, batch_size=config['batch_size'])
@@ -86,12 +88,12 @@ def main():
                          split_prior=config['split_prior'],
                          recon_loss_weight=config['recon_loss_weight']).to('cuda')
 
-    optimizer = optim.Adam(model.parameters(), lr=config['lr'], betas=(0.9, 0.999), weight_decay=0.01)
+    optimizer = optim.Adam(model.parameters(), lr=config['lr'], betas=(0.9, 0.999),
+                            weight_decay=0.01)
     scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
     experiment = Experiment(model, train_loader, val_loader, test_loader,
                             optimizer, scheduler, **config)
-    print(model)
     experiment.run()
 
 
