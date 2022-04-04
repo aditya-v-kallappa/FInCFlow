@@ -26,8 +26,7 @@ class FlowSequential(nn.Module):
                     input, context, compute_expensive=compute_expensive)
             else:
                 output, layer_logdet = module(input, context)
-            if not isinstance(output, torch.Tensor):
-                print("Inside Forward", type(x))
+            
             logdet += layer_logdet
 
             # Important to keep track of module input/output for logdet
@@ -111,7 +110,7 @@ class FlowSequential(nn.Module):
 
     def reconstruct(self, x, context=None, compute_expensive=False):
         input = x
-
+        # print("Input:", input.shape)
         # Forward
         for module in self.sequence_modules:
             if isinstance(module, ModifiedGradFlowLayer):
@@ -119,7 +118,7 @@ class FlowSequential(nn.Module):
                     input, context, compute_expensive=compute_expensive)
             else:
                 output, layer_logdet = module(input, context)
-
+            # print(module, output.shape)
             input = output
         
         # Reverse

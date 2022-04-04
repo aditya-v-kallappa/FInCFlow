@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# from utils.paddedconvbackward.solve_seq 
+from utils.fastflow_inverse.solve_parallel_mc import solve_parallel
 from utils.solve_mc import solve
 from .flowlayer import FlowLayer
+import numpy as np
 
 # def _reverse(x, conv_w=None):
 #     """
@@ -105,22 +106,51 @@ class PaddedConv2d(FlowLayer):
         return out, logdet
 
     def reverse(self, x, context=None, compute_expensive=None):
+        input = x
+        C = x.shape[1]
+        if self.conv.bias is not None:
+            x = x - self.conv.bias.reshape(-1, C, 1, 1)
         if self.order == 'TR':
             x = torch.flip(x, [3])
-            y = solve(x, torch.flip(self.conv.weight.data, [3]), self.kernel_size)
+            # y = solve(x, torch.flip(self.conv.weight.data, [3]), self.kernel_size)
+            y = solve_parallel(
+                np.asarray(x.detach().cpu().numpy(), dtype=np.float64),
+                np.asarray(torch.flip(self.conv.weight.data, [3]).detach().cpu().numpy(), dtype=np.float64),
+                self.kernel_size
+            )    
+            y = torch.from_numpy(y).to(torch.float32).to(x.device)
             y = torch.flip(y, [3])
         
         elif self.order == 'BL':
             x = torch.flip(x, [2])
-            y = solve(x, torch.flip(self.conv.weight.data, [2]), self.kernel_size)
+            # y = solve(x, torch.flip(self.conv.weight.data, [2]), self.kernel_size)
+            y = solve_parallel(
+                np.asarray(x.detach().cpu().numpy(), dtype=np.float64),
+                np.asarray(torch.flip(self.conv.weight.data, [2]).detach().cpu().numpy(), dtype=np.float64),
+                self.kernel_size
+            ) 
+            y = torch.from_numpy(y).to(torch.float32).to(x.device)
             y = torch.flip(y, [2])
         
         elif self.order == 'BR':
             x = torch.flip(x, [2, 3])
-            y = solve(x, torch.flip(self.conv.weight.data, [2, 3]), self.kernel_size)
+            # y = solve(x, torch.flip(self.conv.weight.data, [2, 3]), self.kernel_size)
+            y = solve_parallel(
+                np.asarray(x.detach().cpu().numpy(), dtype=np.float64),
+                np.asarray(torch.flip(self.conv.weight.data, [2, 3]).detach().cpu().numpy(), dtype=np.float64),
+                self.kernel_size
+            ) 
+            y = torch.from_numpy(y).to(torch.float32).to(x.device)
             y = torch.flip(y, [2, 3])
         else:
-            y = solve(x, self.conv.weight.data, self.kernel_size)
+            # y = solve(x, self.conv.weight.data, self.kernel_size)
+            y = solve_parallel(
+                np.asarray(x.detach().cpu().numpy(), dtype=np.float64),
+                np.asarray(self.conv.weight.data.detach().cpu().numpy(), dtype=np.float64),
+                self.kernel_size
+            ) 
+            y = torch.from_numpy(y).to(torch.float32).to(x.device)
+
         # conv_w_np = self.conv.weight.data.cpu().detach().numpy()
         # x_np = x.cpu().detach().numpy()
         # ys = solve_seq.solve(x_np, conv_w_np, self.kernel_size)

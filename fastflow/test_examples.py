@@ -2,6 +2,7 @@ import torch
 
 from test_layers import *
 
+
 # test_PaddedConv2d(
 #     x = torch.tensor(
 #     [
@@ -11,7 +12,7 @@ from test_layers import *
 #     ], dtype=torch.float32
 #     ).reshape(1, 1, 3, 3), 
 
-#     w = torch.tensor(
+#     w = torch.tensor(                             #Kernel has to be properly set
 #         [
 #             [0, 1],
 #             [1, 0]
@@ -23,7 +24,10 @@ from test_layers import *
 #     print_answer=False
 # )
 
-
+# test_clear_grad(
+#     n_channels=3,
+#     kernel_size=(2, 2)
+# )
 
 # test_PaddedConv2d(
 #     x = torch.tensor(
@@ -34,7 +38,7 @@ from test_layers import *
 #     ], dtype=torch.float32
 #     ).reshape(1, 1, 3, 3), 
 
-#     # w = torch.tensor(
+#     # w = torch.tensor(                           #Kernel has to be properly set
 #     #     [
 #     #         [1, 0],
 #     #         [0, 2]
@@ -56,7 +60,7 @@ from test_layers import *
 #     ], dtype=torch.float32
 #     ).reshape(1, 1, 3, 3), 
 
-#     w = torch.tensor(
+#     w = torch.tensor(                                #Kernel has to be properly set
 #         [
 #             [0, 2],
 #             [1, 0]
@@ -77,8 +81,9 @@ from test_layers import *
 # )
 
 # test_FastFlowUnit(
-#     x = torch.rand((10, 48, 10, 10)),
+#     x = torch.rand((10, 48, 100, 100)),
 #     kernel_size=(3, 3),
+#     block_size=20,
 #     is_input=True,
 #     print_answer=False
 # )
@@ -120,3 +125,48 @@ from test_layers import *
 #     is_input=False
 # )
 
+# test_ActNorm(
+#     x=torch.rand((100, 1, 13, 18))
+# )
+
+# test_ActNorm(
+#     x=torch.rand((30, 25, 100, 100)),  #Cannot do this because the layer has to be initialized
+
+#     is_input=False
+# )
+
+
+# test_Conv1x1(
+#     x=torch.rand((100, 10, 13, 180))
+# )
+
+# test_Conv1x1(
+#     x=torch.rand((100, 10, 13, 180)),
+#     is_input=False
+# )
+
+# test_Coupling(
+#     x=torch.rand((10, 8, 100, 100)),
+#     is_input=False
+# )
+
+
+# test_SplitPrior(
+#     x=torch.rand((1, 2, 3, 3)),             #Cannot be tested
+#     print_answer=True
+# )
+
+# test_Split(
+#     x=torch.rand((1, 2, 3, 3)),
+#     is_input=False,                          #Cannot be tested
+#     print_answer=True
+# )
+
+test_FastFlowMNIST(
+    # /home/aditya.kallappa/Research/NormalizingFlows/FastFlow/fastflow
+    checkpoint_path="./wandb/run-20220329_113439-39od8z5l/files/checkpoint.tar"
+)
+
+test_GlowMNIST(
+    checkpoint_path='./wandb/checkpoint.tar'
+)
