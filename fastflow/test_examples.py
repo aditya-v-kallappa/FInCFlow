@@ -164,7 +164,8 @@ from test_layers import *
 
 test_FastFlowMNIST(
     # /home/aditya.kallappa/Research/NormalizingFlows/FastFlow/fastflow
-    checkpoint_path="./wandb/run-20220329_113439-39od8z5l/files/checkpoint.tar"
+    checkpoint_path="./wandb/run-20220329_113439-39od8z5l/files/checkpoint.tar",
+    plot=False
 )
 
 test_GlowMNIST(

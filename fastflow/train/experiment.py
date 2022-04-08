@@ -25,8 +25,8 @@ def clear_grad(module):
 default_config = {
         'name': 'FastFlow_MNIST',
         'notes': None,
-        'wandb': False,
-        'wandb_project': 'fast-flow-run-wd',
+        'wandb': True,
+        'wandb_project': 'fast-flow-run',
         'wandb_entity': 'fast-flow',
         'log_timing': False,
         'eval_train': False,
@@ -90,8 +90,8 @@ class Experiment:
             self.config['checkpoint_path'] = checkpoint_path
 
         self.update_summary('Epoch', 0)
-        self.update_summary("Best Val LogPx", float('-inf'))
-        self.update_summary("Test LogPx", float('-inf'))
+        self.update_summary("Best Val LogPx", float('inf'))
+        self.update_summary("Test LogPx", float('inf'))
 
         if self.config['log_timing']:
             self.batch_time = StatsRecorder()
@@ -112,7 +112,7 @@ class Experiment:
                 val_logpx = self.eval_epoch(self.val_loader, e, split='Val')
                 self.log('Val LogPx', val_logpx)
                 self.log('Val BPD', self.to_bpd(val_logpx))
-                if val_logpx > self.summary['Best Val LogPx']:
+                if val_logpx < self.summary['Best Val LogPx']:
                     self.update_summary('Best Val LogPx', val_logpx)
                     self.update_summary('Best Val BPD', self.to_bpd(val_logpx))
                     test_logpx = self.eval_epoch(self.test_loader, e, split='Test')
@@ -129,8 +129,13 @@ class Experiment:
 
             if e % self.config['vis_epochs'] == 0:
                 self.filter_vis()
-
-            self.scheduler.step()
+                
+            if self.config['Scheduler'] == 'ReduceLROnPlateau':
+                self.scheduler.step(avg_loss)
+            elif self.config['Scheduler'] == 'None':
+                pass
+            else:
+                self.scheduler.step()
 
     def log(self, name, val):
         print(f"{name}: {val}")
@@ -219,7 +224,7 @@ class Experiment:
             for x, _ in dataloader:
                 x = x.float().to('cuda')
 
-                total_logpx += self.model.log_prob(x).sum()
+                total_logpx += -self.model.log_prob(x).sum()
                 num_x += len(x)
                 if num_x >= self.config['max_eval_ex']:
                     break

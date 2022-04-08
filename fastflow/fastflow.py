@@ -16,17 +16,16 @@ class FastFlowUnit(nn.Module):
 
         out_channels = in_channels // 4
         
-        self.split_input = torch.chunk
+        
         self.conv_tl = PaddedConv2d(out_channels, out_channels, kernel_size, order='TL')
         self.conv_tr = PaddedConv2d(out_channels, out_channels, kernel_size, order='TR')
         self.conv_bl = PaddedConv2d(out_channels, out_channels, kernel_size, order='BL')
         self.conv_br = PaddedConv2d(out_channels, out_channels, kernel_size, order='BR')
-        self.cat = torch.cat
-        # self.conv1x1 = Conv1x1(in_channels, in_channels, kernel_size=1, bias=True)
+        
 
     
     def forward(self, x, context=None):
-        x1, x2, x3, x4 = self.split_input(x, 4, dim=1)
+        x1, x2, x3, x4 = torch.chunk(x, 4, dim=1)
 
         logdet_accum = 0.0
 
@@ -42,21 +41,15 @@ class FastFlowUnit(nn.Module):
         out_br, logdet = self.conv_br.forward(x4)
         logdet_accum += logdet
 
-        out = self.cat([out_tl, out_tr, out_bl, out_br], dim=1)
-        
-        # out, logdet = self.conv1x1(out)
-        # logdet_accum += logdet
-
+        out = torch.cat([out_tl, out_tr, out_bl, out_br], dim=1)
+    
         return out, logdet_accum
 
     def reverse(self, x, context=None):
 
         logdet_accum = 0
-
-        # x, logdet = self.conv1x1.reverse(x)
-        # logdet_accum += logdet
-
-        out_tl, out_tr, out_bl, out_br = self.split_input(x, 4, dim=1)
+        
+        out_tl, out_tr, out_bl, out_br = torch.chunk(x, 4, dim=1)
 
         out_tl, logdet = self.conv_tl.reverse(out_tl)
         logdet_accum += logdet
@@ -70,6 +63,6 @@ class FastFlowUnit(nn.Module):
         out_br, logdet = self.conv_br.reverse(out_br)
         logdet_accum += logdet
         
-        out = self.cat([out_tl, out_tr, out_bl, out_br], dim=1)
+        out = torch.cat([out_tl, out_tr, out_bl, out_br], dim=1)
 
         return out

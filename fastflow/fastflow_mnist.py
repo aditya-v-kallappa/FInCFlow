@@ -1,6 +1,6 @@
 import torch
 from torch import optim
-from torch.optim.lr_scheduler import StepLR, MultiStepLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import StepLR, MultiStepLR, ReduceLROnPlateau, ExponentialLR
 
 from layers import Dequantization, Normalization
 from layers.distributions.uniform import UniformDistribution
@@ -26,6 +26,9 @@ now = datetime.now()
 
 # dd/mm/YY HH/MM/SS
 run_name = now.strftime("%d:%m:%Y %H:%M:%S")
+optimizer_ = "Adam"
+scheduler_ = "step_LR_10_0.10"
+lr = 1e-3
 
 
 def create_model(num_blocks=2, block_size=16, sym_recon_grad=False, 
@@ -62,11 +65,11 @@ def create_model(num_blocks=2, block_size=16, sym_recon_grad=False,
 
 def main():
     config = {
-        'name': f'2L-16K FastFlow_MNIST_WD_{run_name}',
+        'name': f'2L-16K FastFlow_MNIST_{optimizer_}_{scheduler_}_{lr}_{run_name}',
         'eval_epochs': 1,
         'sample_epochs': 1,
         'log_interval': 100,
-        'lr': 1e-5,
+        'lr': lr,
         'num_blocks': 2,
         'block_size': 16,
         'batch_size': 250,
@@ -77,10 +80,12 @@ def main():
         'split_prior': True,
         'activation': 'None',
         'recon_loss_weight': 1.0,
-        'sample_true_inv': False,
-        'plot_recon': False,
+        'sample_true_inv': True,
+        'plot_recon': True,
         'dataset': 'MNIST',
-        'run_name': f'{run_name}'
+        'run_name': f'{run_name}',
+        'Optimizer': optimizer_,
+        'Scheduler': scheduler_
     }
 
     train_loader, val_loader, test_loader = load_data(data_aug=False, batch_size=config['batch_size'])
@@ -91,13 +96,16 @@ def main():
                          actnorm=config['actnorm'],
                          split_prior=config['split_prior'],
                          recon_loss_weight=config['recon_loss_weight']).to('cuda')
-
-    optimizer = optim.Adam(model.parameters(), lr=config['lr'], betas=(0.9, 0.999))
-    # optimizer = optim.Adam(model.parameters(), lr=config['lr'], betas=(0.9, 0.999), weight_decay=0.01)
-    # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
-    # scheduler = MultiStepLR(optimizer, milestones=[10, 50, 100, 500], gamma=0.1)   
-    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=10) 
-
+    print(model.parameters())
+    # optimizer = optim.SGD(model.parameters(), lr=config['lr'], momentum=0.9)
+    optimizer = optim.Adam(model.parameters(), lr=config['lr'])
+    # optimizer = optim.Adamax(model.parameters(), lr=config['lr'])
+    # optimizer = optim.Adam(model.parameters(), lr=config['lr'], weight_decay=0.01)
+    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+    # scheduler = None
+    # scheduler = MultiStepLR(optimizer, milestones=[50, 100, 200, 500], gamma=0.5)   
+    # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=10, threshold=1.0) 
+    # scheduler = ExponentialLR(optimizer, gamma=0.99, last_epoch=-1)
     experiment = Experiment(model, train_loader, val_loader, test_loader,
                             optimizer, scheduler, **config)
 

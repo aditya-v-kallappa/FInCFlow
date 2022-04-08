@@ -21,7 +21,11 @@ from datetime import datetime
 
 now = datetime.now()
 # dd/mm/YY HH/MM/SS
-run_name = now.strftime("%d:%m:%Y %H:%M:%S")
+date_time = now.strftime("%d:%m:%Y %H:%M:%S")
+
+lr = 1e-3
+optimizer_ = 'Adam'
+scheduler_ = 'StepLR_10_0.1'
 
 def create_model(num_blocks=3, block_size=32, sym_recon_grad=False, 
                  actnorm=False, split_prior=False, recon_loss_weight=1.0):
@@ -53,14 +57,14 @@ def create_model(num_blocks=3, block_size=32, sym_recon_grad=False,
     return FlowSequential(NegativeGaussianLoss(size=current_size), 
                          *layers)
 
-
+run_name = f'{optimizer_}_{scheduler_}_{lr}_{date_time}'
 def main():
     config = {
         'name': f'3L-32K FastFlow_CIFAR_{run_name}',
         'eval_epochs': 1,
         'sample_epochs': 1,
         'log_interval': 100,
-        'lr': 1e-3,
+        'lr': lr,
         'num_blocks': 3,
         'block_size': 32,
         'batch_size': 80,
@@ -72,11 +76,13 @@ def main():
         'activation': 'None',
         'recon_loss_weight': 0.0,
         'sample_true_inv': False,
-        'plot_recon': False,
+        'plot_recon': True,
         'grad_clip_norm': None,
-        'warmup_epochs': 10,
         'dataset': 'CIFAR',
-        'run_name': f'{run_name}'
+        'run_name': f'{run_name}',
+        'wandb_project': 'fast-flow-CIFAR',
+        'Optimizer': optimizer_,
+        'Scheduler': scheduler_
     }
 
     train_loader, val_loader, test_loader = load_data(data_aug=True, batch_size=config['batch_size'])
@@ -88,9 +94,9 @@ def main():
                          split_prior=config['split_prior'],
                          recon_loss_weight=config['recon_loss_weight']).to('cuda')
 
-    optimizer = optim.Adam(model.parameters(), lr=config['lr'], betas=(0.9, 0.999),
-                            weight_decay=0.01)
+    optimizer = optim.Adam(model.parameters(), lr=config['lr'], betas=(0.9, 0.999))
     scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+    # scheduler = ExponentialLR(optimizer, gamma=0.99, last_epoch=-1)
 
     experiment = Experiment(model, train_loader, val_loader, test_loader,
                             optimizer, scheduler, **config)

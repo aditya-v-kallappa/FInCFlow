@@ -96,7 +96,7 @@ class PaddedConv2d(FlowLayer):
         return mask
 
     def reset_gradients(self):
-        self.conv.weight.grad *= self.conv.weight.grad * self.mask.to(self.conv.weight.grad.device)
+        self.conv.weight.grad = self.conv.weight.grad * self.mask.to(self.conv.weight.grad.device)
 
     
     def forward(self, x, context=None, compute_expensive=None):

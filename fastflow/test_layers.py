@@ -23,12 +23,12 @@ from layers.flowlayer import ModifiedGradFlowLayer
 from fastflow_mnist import create_model as create_model_fastflow
 from glow_mnist import create_model as create_model_glow
 
-def test_PaddedConv2d(x=None, w=None, bias=False, order='TL', is_input=True, print_answer=False):
+def test_PaddedConv2d(x=None, w=None, kernel_size=(3, 3), bias=False, order='TL', is_input=True, print_answer=False):
     if x is None:
         x = torch.randn((1, 2, 3, 3))
     B, C, H, W = x.shape
     if w is None:
-        K_H, K_W = 3, 3
+        K_H, K_W = kernel_size[0], kernel_size[1]
     else:
         C_in, C_out, K_H, K_W = w.shape
         assert C_in == C_out and C_in == C
@@ -235,7 +235,7 @@ def test_Split(x, is_input=True, print_answer=False):
         print("Output:\n", answer[0], "\n", answer[1])
 
 
-def test_FastFlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=10):
+def test_FastFlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=1, plot=True):
     if model is None:
         model = create_model_fastflow(num_blocks=2,
                             block_size=16, 
@@ -264,31 +264,37 @@ def test_FastFlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=10):
     model.eval()
 
     reconstructed_image = model.reconstruct(x)
-    sample1, _ = model.sample(n_samples=14, also_true_inverse=False)
+    sample1, _ = model.sample(n_samples=1, also_true_inverse=False)
+    if plot:
+        fig, ax = plt.subplots(4, 4)
+        # print(x)
+        # print(reconstructed_image)
+        # print(sample1)
+        # print(sample2)
+
+        # ax[0, 0].imshow(np.asarray(x.squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+        # ax[0, 1].imshow(np.asarray(reconstructed_image.squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+        # ax[1, 0].imshow(np.asarray(sample1[0].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+        # ax[1, 1].imshow(np.asarray(sample1[0].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+        k = 0
+        m = 2
+        for i in range(4):
+            for j in range(4):
+                if i == 0 and j == 0:
+                    ax[0, j].imshow(np.asarray(x[m].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+                elif i == 0 and j == 1:
+                    ax[0, j].imshow(np.asarray(reconstructed_image[m].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+
+                else:
+                    ax[i, j].imshow(np.asarray(sample1[k].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+                    k += 1
+        plt.savefig("image_fastflow.png")
     
-    fig, ax = plt.subplots(4, 4)
-    # print(x)
-    # print(reconstructed_image)
-    # print(sample1)
-    # print(sample2)
-
-    # ax[0, 0].imshow(np.asarray(x.squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
-    # ax[0, 1].imshow(np.asarray(reconstructed_image.squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
-    # ax[1, 0].imshow(np.asarray(sample1[0].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
-    # ax[1, 1].imshow(np.asarray(sample1[0].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
-    k = 0
-    m = 2
-    for i in range(4):
-        for j in range(4):
-            if i == 0 and j == 0:
-                ax[0, j].imshow(np.asarray(x[m].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
-            elif i == 0 and j == 1:
-                ax[0, j].imshow(np.asarray(reconstructed_image[m].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
-
-            else:
-                ax[i, j].imshow(np.asarray(sample1[k].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
-                k += 1
-    plt.savefig("image_fastflow.png")
+    else:
+        print(sample1)
+        forward_sample = model.forward(sample1)
+        
+        print("Error:", torch.mean((sample1 - forward_sample) ** 2).item())
 
 
 def test_GlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=1):

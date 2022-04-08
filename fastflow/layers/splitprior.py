@@ -11,7 +11,6 @@ class SplitPrior(FlowLayer):
         self.n_channels = input_size[0]
 
         self.transform = Coupling(input_size, width=width)
-
         self.base = distribution(
             (self.n_channels // 2, input_size[1], input_size[2]))
 

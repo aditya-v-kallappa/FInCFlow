@@ -23,7 +23,8 @@ class NegativeGaussianLoss(nn.Module):
         self.size = size
         self.dim = dim = int(np.prod(size))
         self.N = MultivariateNormal(torch.zeros(dim, device='cuda'),
-                                    torch.eye(dim, device='cuda'))
+                                    torch.eye(dim, device='cuda'),
+                                    validate_args=None)
 
     def forward(self, input, context=None):
         return -self.log_prob(input, context).sum(-1)

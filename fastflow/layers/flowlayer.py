@@ -22,7 +22,11 @@ class FlowLayer(nn.Module, metaclass=ABCMeta):
     def logdet(self, input, context=None):
         pass
         
+    def reconstruct_forward(self, input, context=None):
+        return self.forward(input)
 
+    def reconstruct_reverse(self, input, context=None):
+        return self.reverse(input)
 
 class ModifiedGradFlowLayer(FlowLayer):
 
