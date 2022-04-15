@@ -7,9 +7,10 @@ Generating Images using Fast Normalizing Flows with Invertible Convolution
 - source env.sh
 ## Experiments
 ### Imagenet 32/64
+
 fastflow/fastflow_imagenet_multi_gpu.py
-set-  resulotion to 32 or 64
-    -n_blocks=2, block_size=16, image_size=(3, 32, 32)
+
+set-  resulotion=32/64, -n_blocks=2, block_size=16, image_size=(3, 32, 32)
 
       python fastflow_imagenet_multi_gpu.py
 # ToDo
