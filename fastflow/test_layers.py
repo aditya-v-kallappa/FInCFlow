@@ -1,4 +1,5 @@
 import torch
+import torchvision
 from layers.conv import PaddedConv2d
 from utils.solve_mc import solve
 import time
@@ -22,6 +23,7 @@ from datasets.mnist import load_data
 from layers.flowlayer import ModifiedGradFlowLayer
 from fastflow_mnist import create_model as create_model_fastflow
 from glow_mnist import create_model as create_model_glow
+from model_seperate import FastFlow, Split
 
 def test_PaddedConv2d(x=None, w=None, kernel_size=(3, 3), bias=False, order='TL', is_input=True, print_answer=False):
     if x is None:
@@ -235,7 +237,84 @@ def test_Split(x, is_input=True, print_answer=False):
         print("Output:\n", answer[0], "\n", answer[1])
 
 
-def test_FastFlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=1, plot=True):
+def reconstruct(model, x, true_inverse=True):
+    input = x
+    zs = []
+    z_inv_index = -1
+    # print("Input:", input.shape)
+    # Forward
+    for module in model.sequence_modules:
+        
+        if isinstance(module, SplitPrior) and true_inverse:
+            output, z, layer_logdet = module(input, true_inverse)
+            zs.append(z)
+        else:
+            output, layer_logdet = module(input)
+        # print(module, output.shape)
+        input = output
+    
+    # Reverse
+    for module in reversed(model.sequence_modules):
+        if isinstance(module, SplitPrior) and true_inverse:
+            input = torch.cat([input, zs[z_inv_index]], dim=1)
+            output = module.reverse(input, true_inverse)
+            z_inv_index -= 1
+        else:
+            output = module.reverse(input)
+        input = output
+    
+    return input
+
+def reconstruct_ms(model, x, true_inverse=True):
+    # input = x
+    # # Forward
+    # zs = []
+
+    # x, _ = model.preprocess(x)
+    # for module in model.fastflow_levels:
+    #     x, z, _ = module(x)
+    #     zs.append(z)
+    # x, _ = model.squeeze(x)
+    # x, _ = model.fastflow_step(x)
+    # x, _ = model.gaussianize(torch.zeros_like(x), x)
+    # zs.append(x)
+
+
+    # # Reverse
+    # if not true_inverse:
+    #     zs = []
+    #     z_std = 1.0
+    #     zs = model.base_distribution.sample(x.shape[0])[0]#.squeeze()]
+    #     print(zs.shape)
+    #     x = zs
+
+    # x = model.gaussianize.reverse(torch.zeros_like(zs[-1]), zs[-1])
+    # # z = model.gaussianize.reverse(x, zs)
+    # x = model.fastflow_step.reverse(x)
+    # x = model.squeeze.reverse(x)
+    # for i, m in enumerate(reversed(model.fastflow_levels)):
+    #     # z = z_std * (model.base_dist.sample(x.shape).squeeze() if len(zs)==1 else zs[-i-2])  # if no z's are passed, generate new random numbers from the base dist
+    #     if isinstance(m, Split) and true_inverse:
+    #         x = m.reverse(x, zs[-i-2])#, z)
+    #     else:
+    #         x = m.reverse(x)
+
+    # # postprocess
+    # x = model.preprocess.reverse(x) 
+    # print("input", x.shape)
+    z, _ = model(x)
+    # print(len(z))
+    # print(z[0].shape)
+    if not true_inverse:
+        # z = [model.base_distribution.sample(x.shape[0])[0]]#.squeeze()]
+        # print(z.shape)
+        y = model.reverse(n_samples=x.shape[0], zs=[z[-1]])
+    else:
+        y = model.reverse(n_samples=x.shape[0], zs=z)
+
+    return y
+
+def test_FastFlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=25, plot=True, true_inverse=True):
     if model is None:
         model = create_model_fastflow(num_blocks=2,
                             block_size=16, 
@@ -243,6 +322,7 @@ def test_FastFlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=1, p
                             actnorm=True,
                             split_prior=True,
                             recon_loss_weight=1.0).to('cuda')
+    check = 'untrained'
     if checkpoint_path:
         print("Loading from ", checkpoint_path)
 
@@ -251,7 +331,7 @@ def test_FastFlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=1, p
         model.load_state_dict(checkpoint['model_state_dict'])
         # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         # scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-
+        check = 'trained'
 
     if not x:
         train_loader, val_loader, test_loader = load_data(data_aug=False, batch_size=batch_size)
@@ -263,38 +343,49 @@ def test_FastFlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=1, p
     
     model.eval()
 
-    reconstructed_image = model.reconstruct(x)
-    sample1, _ = model.sample(n_samples=1, also_true_inverse=False)
-    if plot:
-        fig, ax = plt.subplots(4, 4)
-        # print(x)
-        # print(reconstructed_image)
-        # print(sample1)
-        # print(sample2)
+    reconstructed_image = reconstruct(model, x, true_inverse)
+    # sample1, _ = model.sample(n_samples=1, also_true_inverse=False)
+    # if plot:
+    #     fig, ax = plt.subplots(5, 5)
+    #     # print(x)
+    #     # print(reconstructed_image)
+    #     # print(sample1)
+    #     # print(sample2)
 
-        # ax[0, 0].imshow(np.asarray(x.squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
-        # ax[0, 1].imshow(np.asarray(reconstructed_image.squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
-        # ax[1, 0].imshow(np.asarray(sample1[0].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
-        # ax[1, 1].imshow(np.asarray(sample1[0].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
-        k = 0
-        m = 2
-        for i in range(4):
-            for j in range(4):
-                if i == 0 and j == 0:
-                    ax[0, j].imshow(np.asarray(x[m].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
-                elif i == 0 and j == 1:
-                    ax[0, j].imshow(np.asarray(reconstructed_image[m].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+    #     # ax[0, 0].imshow(np.asarray(x.squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+    #     # ax[0, 1].imshow(np.asarray(reconstructed_image.squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+    #     # ax[1, 0].imshow(np.asarray(sample1[0].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+    #     # ax[1, 1].imshow(np.asarray(sample1[0].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+    #     k = 0
+    #     m = 2
+    #     for i in range(4):
+    #         for j in range(4):
+    #             if i == 0 and j == 0:
+    #                 ax[0, j].imshow(np.asarray(x[m].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+    #             elif i == 0 and j == 1:
+    #                 ax[0, j].imshow(np.asarray(reconstructed_image[m].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
 
-                else:
-                    ax[i, j].imshow(np.asarray(sample1[k].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
-                    k += 1
-        plt.savefig("image_fastflow.png")
+    #             else:
+    #                 ax[i, j].imshow(np.asarray(sample1[k].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
+    #                 k += 1
+    #     plt.savefig("image_fastflow.png")
     
-    else:
-        print(sample1)
-        forward_sample = model.forward(sample1)
+    # else:
+    #     print(sample1)
+    #     forward_sample = model.forward(sample1)
         
-        print("Error:", torch.mean((sample1 - forward_sample) ** 2).item())
+    #     print("Error:", torch.mean((sample1 - forward_sample) ** 2).item())
+
+    if plot:
+        torchvision.utils.save_image(
+            reconstructed_image / 256., f'{true_inverse}_reconstruct_{check}.png', nrow=10,
+            padding=2, normalize=False)
+
+        torchvision.utils.save_image(
+            x / 256., f'{true_inverse}_original_{check}.png', nrow=10,
+            padding=2, normalize=False)
+
+    print("Error:", torch.mean((x - reconstructed_image) ** 2).item())
 
 
 def test_GlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=1):
@@ -351,3 +442,145 @@ def test_GlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=1):
                 ax[i, j].imshow(np.asarray(sample1[k].squeeze().detach().cpu().numpy(), dtype=np.int8), cmap='gray')
                 k += 1
     plt.savefig("image_glow.png")
+
+
+def test_FastFlow(model=None, checkpoint_path=None, x=None, batch_size=25, plot=True, true_inverse=True):
+    if model is None:
+        model = FastFlow(n_blocks=2,
+                            block_size=16,
+                            actnorm=True).to('cuda')
+    check = 'untrained'
+    if checkpoint_path:
+        print("Loading from ", checkpoint_path)
+
+        checkpoint = torch.load(checkpoint_path)
+        summary = checkpoint['summary']
+        model.load_state_dict(checkpoint['model_state_dict'])
+        # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        # scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        check = 'trained'
+
+    if not x:
+        train_loader, val_loader, test_loader = load_data(data_aug=False, batch_size=batch_size)
+        for x, label in test_loader:
+            x = x.cuda()
+            break
+    else:
+        x = x.cuda()
+    
+    model.eval()
+
+    reconstructed_image = reconstruct_ms(model, x, true_inverse)
+
+    if plot:
+        torchvision.utils.save_image(
+            reconstructed_image / 256., f'{true_inverse}_reconstructFF_{check}.png', nrow=10,
+            padding=2, normalize=False)
+
+        torchvision.utils.save_image(
+            x / 256., f'{true_inverse}_originalFF_{check}.png', nrow=10,
+            padding=2, normalize=False)
+
+    print("Error:", torch.mean((x - reconstructed_image) ** 2).item())
+
+
+
+from model_seperate import Preprocess, GlowStep, FastFlowStep, FastFlowLevel, Split, Gaussianize
+
+def test_Preprocess(x, is_input=True):
+    B, C, H, W = x.shape
+    layer = Preprocess(size=(C, H, W))
+    if is_input:
+        forward_output, _ = layer.forward(x)
+        reverse_input = layer.reverse(forward_output)
+        print("Error:", torch.mean((x - reverse_input) ** 2).item())
+    else:
+        reverse_input = layer.reverse(x)
+        forward_output, _ = layer.forward(reverse_input)
+        print("Error:", torch.mean((x - forward_output) ** 2).item())
+
+def test_GlowStep(x, is_input=True):
+    B, C, H, W = x.shape
+    layer = GlowStep(size=(C, H, W), actnorm=True)
+    if is_input:
+        forward_output, _ = layer.forward(x)
+        reverse_input = layer.reverse(forward_output)
+        print("Error:", torch.mean((x - reverse_input) ** 2).item())
+    else:
+        reverse_input = layer.reverse(x)
+        forward_output, _ = layer.forward(reverse_input)
+        print("Error:", torch.mean((x - forward_output) ** 2).item())
+
+def test_FastFlowStep(x, is_input=True):
+    B, C, H, W = x.shape
+    layer = FastFlowStep(size=(C, H, W), actnorm=True)
+    if is_input:
+        forward_output, _ = layer.forward(x)
+        reverse_input = layer.reverse(forward_output)
+        print("Error:", torch.mean((x - reverse_input) ** 2).item())
+    else:
+        reverse_input = layer.reverse(x)
+        forward_output, _ = layer.forward(reverse_input)
+        print("Error:", torch.mean((x - forward_output) ** 2).item())
+
+def test_Split(x, is_input=True):
+    B, C, H, W = x.shape
+    layer = Split((C, H, W), NegativeGaussianLoss)
+    if is_input:
+        forward_output, z2, _ = layer.forward(x)
+        reverse_input = layer.reverse(forward_output, z2)
+        print("Error:", torch.mean((x - reverse_input) ** 2).item())
+    else:
+        reverse_input = layer.reverse(x)
+        forward_output, _ = layer.forward(reverse_input)
+        print("Error:", torch.mean((x - forward_output) ** 2).item())
+
+def test_Gaussianize(x, is_input=True, with_zeros=False):
+    B, C, H, W = x.shape
+    if not with_zeros:
+        assert not C % 2, "Error: channels not divisible by 2"
+        x1, x2 = x.chunk(2, dim=1)
+        layer = Gaussianize(C // 2)
+        
+        if is_input:
+            forward_output, _ = layer.forward(x1, x2)
+            reverse_input = layer.reverse(x1, forward_output)
+            print("Error:", torch.mean((forward_output - reverse_input) ** 2).item())
+        else:
+            reverse_input = layer.reverse(x)
+            forward_output, _ = layer.forward(reverse_input)
+            print("Error:", torch.mean((x - forward_output) ** 2).item())
+
+    else:
+        x1 = torch.zeros_like(x)
+        x2 = x
+        layer = Gaussianize(C)
+        if is_input:
+            forward_output, _ = layer.forward(x1, x2)
+            reverse_input = layer.reverse(x1, forward_output)
+            print("Error:", torch.mean((forward_output - reverse_input) ** 2).item())
+
+def test_FastFlowLevel(x, is_input=True):
+    B, C, H, W = x.shape
+    layer = FastFlowLevel(size=(C, H, W), block_size=16, actnorm=True)
+    if is_input:
+        forward_output, z2, _ = layer.forward(x)
+        reverse_input = layer.reverse(forward_output, z2)
+        print("Error:", torch.mean((x - reverse_input) ** 2).item())
+    else:
+        reverse_input = layer.reverse(x)
+        forward_output, _ = layer.forward(reverse_input)
+        print("Error:", torch.mean((x - forward_output) ** 2).item())
+
+def test_FastFlow_(x, is_input=True):
+    B, C, H, W = x.shape
+    layer = FastFlow(n_blocks=3, block_size=16, image_size=(C, H, W), actnorm=True)
+    if is_input:
+        forward_output, _ = layer.forward(x)
+        reverse_input = layer.reverse(n_samples=B, zs=forward_output)
+        print("Error:", torch.mean((x - reverse_input) ** 2).item())
+    else:
+        reverse_input = layer.reverse(x)
+        forward_output, _ = layer.forward(reverse_input)
+        print("Error:", torch.mean((x - forward_output) ** 2).item())
+

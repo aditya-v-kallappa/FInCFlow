@@ -30,10 +30,13 @@ class NegativeGaussianLoss(nn.Module):
         return -self.log_prob(input, context).sum(-1)
 
     def log_prob(self, input, context=None, sum=True):
+        device = input.device
+        input = input.to(self.N.loc.device)
         try: 
             p = self.N.log_prob(input.view(-1, self.dim))
         except RuntimeError:
             p = self.N.log_prob(input.reshape(-1, self.dim))
+        p = p.to(device)
         return p
 
     def sample(self, n_samples, context=None):

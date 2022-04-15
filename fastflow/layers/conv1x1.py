@@ -24,6 +24,8 @@ class Conv1x1(FlowLayer):
 
         w = w.view(self.n_channels, self.n_channels, 1, 1)
 
+        # w = w.to(x.device)
+
         z = F.conv2d(
             x, w, bias=None, stride=1, padding=0, dilation=1,
             groups=1)

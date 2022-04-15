@@ -27,7 +27,7 @@ now = datetime.now()
 # dd/mm/YY HH/MM/SS
 run_name = now.strftime("%d:%m:%Y %H:%M:%S")
 optimizer_ = "Adam"
-scheduler_ = "step_LR_10_0.10"
+scheduler_ = "Exponential_0.99"
 lr = 1e-3
 
 
@@ -80,7 +80,7 @@ def main():
         'split_prior': True,
         'activation': 'None',
         'recon_loss_weight': 1.0,
-        'sample_true_inv': True,
+        'sample_true_inv': False,
         'plot_recon': True,
         'dataset': 'MNIST',
         'run_name': f'{run_name}',
@@ -101,11 +101,11 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=config['lr'])
     # optimizer = optim.Adamax(model.parameters(), lr=config['lr'])
     # optimizer = optim.Adam(model.parameters(), lr=config['lr'], weight_decay=0.01)
-    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+    # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
     # scheduler = None
     # scheduler = MultiStepLR(optimizer, milestones=[50, 100, 200, 500], gamma=0.5)   
     # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=10, threshold=1.0) 
-    # scheduler = ExponentialLR(optimizer, gamma=0.99, last_epoch=-1)
+    scheduler = ExponentialLR(optimizer, gamma=0.99, last_epoch=-1)
     experiment = Experiment(model, train_loader, val_loader, test_loader,
                             optimizer, scheduler, **config)
 

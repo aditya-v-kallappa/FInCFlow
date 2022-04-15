@@ -21,7 +21,7 @@ def clear_grad(module):
         # print(module.conv.weight.data)
         # print(module.conv.weight.grad)
 
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 default_config = {
         'name': 'FastFlow_MNIST',
         'notes': None,
@@ -45,7 +45,8 @@ default_config = {
         'add_recon_grad': True,
         'sample_true_inv': False,
         'plot_recon': False,
-        'checkpoint_path': None
+        'checkpoint_path': None,
+        'early_stop_epochs': 10
     }
 
 class Experiment:
@@ -98,11 +99,15 @@ class Experiment:
             self.sample_time = StatsRecorder()
 
     def run(self):
+        early_stop_epoch_count = 0
         for e in range(self.summary['Epoch'] + 1, self.config['epochs'] + 1):
+            if early_stop_epoch_count == self.config['early_stop_epochs']:
+                print("Stopping early!")
+                break
             self.update_summary('Epoch', e)
             avg_loss = self.train_epoch(e)
             self.log('Train Avg Loss', avg_loss)
-
+            torch.cuda.empty_cache()
             if e % self.config['eval_epochs'] == 0:
                 if self.config['eval_train']:
                     train_logpx = self.eval_epoch(self.train_loader, e)
@@ -123,12 +128,15 @@ class Experiment:
 
                     # Checkpoint model
                     self.save()
+                    early_stop_epoch_count = 0
+                else:
+                    early_stop_epoch_count += 1
 
             if e < 5 or e == 10 or e % self.config['sample_epochs'] == 0:
                 self.sample(e)
 
-            if e % self.config['vis_epochs'] == 0:
-                self.filter_vis()
+            # if e % self.config['vis_epochs'] == 0:
+            #     self.filter_vis()
                 
             if self.config['Scheduler'] == 'ReduceLROnPlateau':
                 self.scheduler.step(avg_loss)
@@ -148,7 +156,12 @@ class Experiment:
 
     def get_loss(self, x):
         compute_expensive = not self.config['modified_grad']
-        lossval = -self.model.log_prob(x, compute_expensive=compute_expensive)  
+        if self.config['multi_gpu']:
+            # lossval = -self.model.log_prob(x, compute_expensive=compute_expensive)  
+            _, lossval = self.model.forward(x)
+            lossval = -lossval
+        else:
+            lossval = -self.model.log_prob(x, compute_expensive=compute_expensive)  
         lossval[lossval != lossval] = 0.0 # Replace NaN's with 0      
         lossval = (lossval).sum() / len(x)
         return lossval
@@ -172,7 +185,7 @@ class Experiment:
         for x, _ in self.train_loader:
             self.warmup_lr(epoch, num_batches)
             self.optimizer.zero_grad()
-            x = x.float().to('cuda')
+            x = x.float().to(device)
             if self.config['log_timing']:
                 start = torch.cuda.Event(enable_timing=True)
                 end = torch.cuda.Event(enable_timing=True)
@@ -222,9 +235,12 @@ class Experiment:
         with torch.no_grad():
             self.model.eval()
             for x, _ in dataloader:
-                x = x.float().to('cuda')
-
-                total_logpx += -self.model.log_prob(x).sum()
+                x = x.float().to(device)
+                if self.config['multi_gpu']:
+                    loss = self.model.forward(x)[1]
+                    total_logpx += -loss.sum()
+                else:
+                    total_logpx += -self.model.log_prob(x).sum()
                 num_x += len(x)
                 if num_x >= self.config['max_eval_ex']:
                     break
@@ -245,9 +261,14 @@ class Experiment:
             for idx in range(n):
                 start.record()
                 with torch.no_grad():
-                    _, _ = self.model.sample(n_samples=1,
-                                compute_expensive=compute_expensive,
-                                also_true_inverse=False)
+                    if self.config['multi_gpu']:
+                        _, _ = self.model.module.sample(n_samples=1,
+                                    compute_expensive=compute_expensive,
+                                    also_true_inverse=False)
+                    else:
+                        _, _ = self.model.sample(n_samples=1,
+                                    compute_expensive=compute_expensive,
+                                    also_true_inverse=False)
                 end.record()
                 torch.cuda.synchronize()
                 sample_durations.append(start.elapsed_time(end))
@@ -257,9 +278,15 @@ class Experiment:
             self.update_summary('Sample Time Std', self.sample_time.std)
 
         with torch.no_grad():
-            x_sample, x_sample_trueinv = self.model.sample(n_samples=n,
+            if self.config['multi_gpu']:
+                x_sample, x_sample_trueinv = self.model.module.sample(n_samples=n,
                         compute_expensive=compute_expensive,
                         also_true_inverse=self.config['sample_true_inv']
+                        )
+            else:
+                x_sample, x_sample_trueinv = self.model.sample(n_samples=n,
+                            compute_expensive=compute_expensive,
+                            also_true_inverse=self.config['sample_true_inv']
                         )
             if len(self.data_shape) == 2:
                 x_sample = x_sample.view(n, 1, *self.data_shape)
@@ -298,7 +325,10 @@ class Experiment:
         compute_expensive = not self.config['modified_grad']
 
         with torch.no_grad():
-            xhat = self.model.reconstruct(x, context, compute_expensive).view(x.shape)
+            if self.config['multi_gpu']:
+                xhat = self.model.module.reconstruct(x, context, compute_expensive).view(x.shape)
+            else:    
+                xhat = self.model.reconstruct(x, context, compute_expensive).view(x.shape)
 
         os.makedirs(s_dir, exist_ok=True)
         torchvision.utils.save_image(

@@ -15,13 +15,15 @@ from layers.transforms import LogitTransform
 from layers.coupling import Coupling
 from train.losses import NegativeGaussianLoss
 from train.experiment import Experiment
-from datasets.mnist import load_data
+from datasets.mnist import load_data as load_data_mnist
+from datasets.cifar10 import load_data as load_data_cifar
 from layers.flowlayer import FlowLayer
-
+from train.experiment import Experiment
 from layers.conv import PaddedConv2d#, Conv1x1
 from fastflow import FastFlowUnit
 
 from collections import OrderedDict
+from datetime import datetime
 
 
 def clear_grad(module):
@@ -52,15 +54,16 @@ class Split(FlowLayer):
         z2, logdet = self.gaussianize(x1, x2)
         log_pz2 = self.base.log_prob(z2)
         logdet += log_pz2
-        # return x1, z2, logdet
-        return x1, logdet
+        return x1, z2, logdet
+        # return x1, logdet
 
-    def reverse(self, x1, context=None):#, z2):
-        z2, log_pz2 = self.base.sample(x1.shape[0], context)
-        x2, logdet = self.gaussianize.reverse(x1, z2)
+    def reverse(self, x1, z2=None, context=None):#, z2):
+        if z2 is None:
+            z2, log_pz2 = self.base.sample(x1.shape[0], context)
+        x2 = self.gaussianize.reverse(x1, z2)
         x = torch.cat([x1, x2], dim=1)  # cat along channel dim
-        return x, logdet
-    
+        return x
+
     def logdet(self, x, context=None):
         x, logdet = self.forward(x, context)
         return logdet
@@ -82,7 +85,7 @@ class Split(FlowLayer):
             z2 = self.z2
         x2, logdet = self.gaussianize.reverse(x1, z2)
         x = torch.cat([x1, x2], dim=1)  # cat along channel dim
-        return x, logdet
+        return x
 
 class Gaussianize(nn.Module):
     """ Gaussianization per ReanNVP sec 3.6 / fig 4b -- at each step half the variables are directly modeled as Gaussians.
@@ -109,16 +112,16 @@ class Gaussianize(nn.Module):
         logdet = - logs.sum([1,2,3])
         return z2, logdet
 
-    def reverse(self, x1, z2=None):
-        if z2 is not None:
-            z2, log_pz2 = self.base.sample(x1.shape[0], context)
-        else:
-            log_pz2 = 0.0
+    def reverse(self, x1, z2):
+        # if z2 is None:
+        #     z2, log_pz2 = self.base.sample(x1.shape[0], context)
+        # else:
+        #     log_pz2 = 0.0
         h = self.net(x1) * self.log_scale_factor.exp()
         m, logs = h[:,0::2,:,:], h[:,1::2,:,:]
         x2 = m + z2 * torch.exp(logs)
-        logdet = logs.sum([1,2,3])
-        return x2, logdet + log_pz2
+        # logdet = logs.sum([1,2,3])
+        return x2
 
 class Preprocess(nn.Module):
     def __init__(self, size):
@@ -142,7 +145,7 @@ class Preprocess(nn.Module):
     
     def reverse(self, x):
         for layer in reversed(self.layers):
-                x = layer.reverse(x)#, context=None)
+            x = layer.reverse(x)#, context=None)
         
         return x
 
@@ -177,7 +180,8 @@ class GlowStep(nn.Module):
     
     def reverse(self, x):
         for layer in reversed(self.glow_step):
-                x = layer.reverse(x)#, context=None)
+            # print("Inside GLowStep", layer)
+            x = layer.reverse(x)#, context=None)
         
         return x
 
@@ -208,8 +212,10 @@ class FastFlowStep(nn.Module):
         return x, logdet    
     
     def reverse(self, x):
+        # print("In FastFlow Step Inverse")
         for layer in reversed(self.fastflow_step):
-                x = layer.reverse(x)#, context=None)
+            # print(layer)
+            x = layer.reverse(x)#, context=None)
 
         return x
 
@@ -233,15 +239,21 @@ class FastFlowLevel(nn.Module):
         # x, layer_logdet = self.glow_unit(x, context=None)
         # logdet += layer_logdet
         for layer in self.fastflow_level:
-            x, layer_logdet = layer(x)
+            if not isinstance(layer, Split):
+                x, layer_logdet = layer(x)
+            else:
+                x, z, layer_logdet = layer(x)
             logdet += layer_logdet
-
-        return x, logdet    
+        return x, z, logdet    
     
-    def reverse(self, x):
+    def reverse(self, x, z=None):
         for layer in reversed(self.fastflow_level):
+            # print("In FastFlowLevel Reverse")
+            # print(layer)
+            if not isinstance(layer, Split):
                 x = layer.reverse(x)#, context=None)
-
+            else:
+                x = layer.reverse(x, z)
         return x
 
 class FastFlow(nn.Module):
@@ -266,46 +278,53 @@ class FastFlow(nn.Module):
 
     def forward(self, x, context=None):
         logdet = 0
-
+        zs = []
         x, layer_logdet = self.preprocess(x)
         logdet += layer_logdet
+        # print("After preprocess", x.shape, torch.cuda.current_device())
         for module in self.fastflow_levels:
-            x, layer_logdet = module(x)
+            x, z, layer_logdet = module(x)
             logdet += layer_logdet
-
+            zs.append(z)
+        # print("After fastflow_levels", x.shape, torch.cuda.current_device())
         x, layer_logdet = self.squeeze(x)
         logdet += layer_logdet
-
+        # print("Outside Squeeze:", x.shape, torch.cuda.current_device())
         x, layer_logdet = self.fastflow_step(x)
         logdet += layer_logdet
-        
+        # print("After Outside step", x.shape, torch.cuda.current_device())
         x, layer_logdet = self.gaussianize(torch.zeros_like(x), x)
-        logdet += layer_logdet          
-        return x, logdet
+        logdet += layer_logdet     
+        logdet += self.base_distribution.log_prob(x)     
+        zs.append(x)
+        # print("Output:", x.shape, torch.cuda.current_device())
+        return zs, logdet#x, logdet
     
     def reverse(self, n_samples=1, zs=None, z_std=1.0):
         if zs is None:  # if no random numbers are passed, generate new from the base distribution
             assert n_samples is not None, 'Must either specify n_samples or pass a batch of z random numbers.'
-            zs = [z_std * self.base_distribution.sample(n_samples).squeeze()]
-        logdet = 0
-        z, layer_logdet = self.gaussianize.reverse(torch.zeros_like(zs[-1]), zs[-1])
-        logdet += layer_logdet
-
-        x, layer_logdet = self.fastflow_step.reverse(z)
-        logdet += layer_logdet
-
-        x, layer_logdet = self.squeeze.reverse(x)
-        logdet += layer_logdet
+            # zs = [z_std * self.base_distribution.sample(n_samples).squeeze()]
+            zs = self.base_distribution.sample(n_samples)[0]
+            zs = [zs]
+        
+        z = self.gaussianize.reverse(torch.zeros_like(zs[-1]),zs[-1])
+        # print("After inverse gaussianize", z.shape)
+        x = self.fastflow_step.reverse(z)
+        x = self.squeeze.reverse(x)
 
         for i, m in enumerate(reversed(self.fastflow_levels)):
+            
             # z = z_std * (self.base_dist.sample(x.shape).squeeze() if len(zs)==1 else zs[-i-2])  # if no z's are passed, generate new random numbers from the base dist
-            x, layer_logdet = m.reverse(x)#, z)
+            if len(zs) == 1:
+                x = m.reverse(x)#, z)
+            else:
+                x = m.reverse(x, zs[-i-2])
 
-            logdet += layer_logdet
+            
         # postprocess
-        x, layer_logdet = self.preprocess.reverse(x)
-        logdet += layer_logdet
-        return x, logdet
+        x = self.preprocess.reverse(x)
+        
+        return x
 
     def log_prob(self, x, bits_per_pixel=False):
         x, log_prob = self.forward(x)
@@ -313,53 +332,136 @@ class FastFlow(nn.Module):
             log_prob /= (math.log(2) * x[0].numel()) 
         return log_prob
 
-def main():
-    model = FastFlow(n_blocks=2, block_size=16, actnorm=True).to("cuda")
-    # print(model)
-    fastflow_params = []
-    glow_params = []
-    for name, param in model.named_parameters():
-        if 'fastflow_unit' in name:
-            fastflow_params.append(param)
-        else:
-            glow_params.append(param)
-    # print(fastflow_params)
-    # print(glow_params)
+    def sample(self, n_samples, context=None, compute_expensive=False, 
+                also_true_inverse=False):
+        z, logprob = self.base_distribution.sample(n_samples, context)
+        z = [z]
+        # Regular sample
+        input = z
+        x = self.reverse(n_samples=n_samples, zs=z)
+        return x, x #true_x
 
-    # for m in model.parameters():
-    #     print(m)
+    def reconstruct(self, x, context=None, compute_expensive=False):
+        zs, _ = self.forward(x)
+        x = self.reverse(n_samples=x.shape[0], zs=[zs[-1]])   
+        return x
 
-    optimizer = optim.Adam([
-        {'params': fastflow_params, 'lr': 1e-6},
-        {'params': glow_params}
-    ], lr=1e-6)
 
-    optimizer = optim.SGD(model.parameters(), lr=1e-4)
-    
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-
-    train_loader, val_loader, test_loader = load_data(data_aug=False, batch_size=250)
-    for e in range(10):
-        avg_loss = train(model, train_loader, optimizer, scheduler)
-        print(e, avg_loss)
-
-def train(model, train_loader, optimizer, scheduler):
-    batches = 0
-    total_loss = 0
-    for input, label in train_loader:
-        optimizer.zero_grad()
-        input = input.to("cuda")
-        # out, _ = model(input)
-        loss = -model.log_prob(input, bits_per_pixel=True).mean(0)
-        loss.backward()
-        # print(loss)
-        model.apply(clear_grad)
-        # print("+=========================================================================")
-        optimizer.step()
-        total_loss += loss
-        batches += 1
-    
-    return total_loss/batches
+# 
         
 if __name__ == '__main__':
-    main()
+
+    now = datetime.now()
+    # dd/mm/YY HH/MM/SS
+    date_time = now.strftime("%d:%m:%Y %H:%M:%S")
+    lr = 1e-3
+    optimizer_ = 'Adam'
+    scheduler_ = 'Step_LR_25_0.1'
+    multi_gpu = False
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.device_count() > 1:
+        multi_gpu = True
+    run_name = f'{optimizer_}_{scheduler_}_{lr}_{date_time}'
+    config = {
+        'name': f'3L-32K FastFlow_CIFAR_{run_name}',
+        'eval_epochs': 1,
+        'sample_epochs': 1,
+        'log_interval': 100,
+        'lr': lr,
+        'num_blocks': 3,
+        'block_size': 32,
+        'batch_size': 350,
+        'modified_grad': False,
+        'add_recon_grad': False,
+        'sym_recon_grad': False,
+        'actnorm': True,
+        'split_prior': True,
+        'activation': 'None',
+        'recon_loss_weight': 0.0,
+        'sample_true_inv': False,
+        'plot_recon': True,
+        'grad_clip_norm': None,
+        'dataset': 'CIFAR',
+        'run_name': f'{run_name}',
+        'wandb_project': 'fast-flow-CIFAR-new',
+        'Optimizer': optimizer_,
+        'Scheduler': scheduler_,
+        'multi_gpu': multi_gpu
+    }
+
+    train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=config['batch_size'])
+
+    model = FastFlow(n_blocks=config['num_blocks'],
+                     block_size=config['block_size'],
+                     actnorm=config['actnorm'],
+                     image_size=(3, 32, 32))#.to("cuda")
+    if config['multi_gpu']:
+        model = nn.DataParallel(model)
+    
+    model = model.to('cuda')
+    
+    optimizer = optim.Adam(model.parameters(), lr=config['lr'])
+    scheduler = StepLR(optimizer, step_size=25, gamma=0.1)
+    # scheduler = ExponentialLR(optimizer, gamma=0.99, last_epoch=-1)
+
+    experiment = Experiment(model, train_loader, val_loader, test_loader,
+                            optimizer, scheduler, **config)
+    experiment.run()
+
+
+
+
+# def main():
+#     model = FastFlow(n_blocks=2, block_size=1, actnorm=True)#.to("cuda")
+#     model = nn.DataParallel(model)
+#     model = model.to('cuda')
+#     # print(model)
+#     fastflow_params = []
+#     glow_params = []
+#     # for name, param in model.named_parameters():
+#     #     if 'fastflow_unit' in name:
+#     #         fastflow_params.append(param)
+#     #     else:
+#     #         glow_params.append(param)
+#     # print(fastflow_params)
+#     # print(glow_params)
+
+#     # for m in model.parameters():
+#     #     print(m)
+
+#     # optimizer = optim.Adam([
+#     #     {'params': fastflow_params, 'lr': 1e-6},
+#     #     {'params': glow_params}
+#     # ], lr=1e-6)
+
+#     optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    
+#     # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+#     scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99, last_epoch=-1)
+
+#     train_loader, val_loader, test_loader = load_data(data_aug=False, batch_size=1250)
+#     for e in range(50):
+#         avg_loss = train(model, train_loader, optimizer, scheduler)
+#         print(e, avg_loss)
+#         scheduler.step()
+
+# def train(model, train_loader, optimizer, scheduler):
+#     batches = 0
+#     total_loss = 0
+#     for input, label in train_loader:
+#         optimizer.zero_grad()
+#         input = input.to("cuda")
+#         # out, _ = model(input)
+#         # loss = -model.log_prob(input, bits_per_pixel=True).mean(0)
+#         _, loss = model.forward(input) 
+#         loss = -loss.mean(0)
+#         # print(loss)
+#         loss.backward()
+#         # print(loss)
+#         model.apply(clear_grad)
+#         # print("+=========================================================================")
+#         optimizer.step()
+#         total_loss += loss
+#         batches += 1
+    
+#     return total_loss/batches

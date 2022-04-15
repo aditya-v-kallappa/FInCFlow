@@ -101,6 +101,7 @@ class PaddedConv2d(FlowLayer):
     
     def forward(self, x, context=None, compute_expensive=None):
         x = F.pad(x, self.pad)
+        # self.conv = self.conv.to(x.device)
         out = self.conv(x)
         logdet = 0.0
         return out, logdet

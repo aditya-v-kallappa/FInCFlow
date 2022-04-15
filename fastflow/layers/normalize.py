@@ -16,8 +16,11 @@ class Normalization(PreprocessingFlowLayer):
             self.register_buffer('scale', torch.Tensor([scale]))
 
     def forward(self, input, context=None):
+        # device = input.device
         return (input - self.translation) / self.scale, \
                self.logdet(input, context)
+        # return (input - self.translation.to(device)) / self.scale.to(device), \
+        #        self.logdet(input, context)
 
     def reverse(self, input, context=None):
         return (input * self.scale) + self.translation

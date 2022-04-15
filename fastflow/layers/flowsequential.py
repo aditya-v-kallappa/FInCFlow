@@ -21,14 +21,18 @@ class FlowSequential(nn.Module):
     def forward(self, input, context=None, compute_expensive=False):
         logdet = 0
         for idx, module in enumerate(self):
+            # print("Entering ", module, "on GPU: ", torch.cuda.current_device(), " with input: ", input.device)
             if isinstance(module, ModifiedGradFlowLayer):
                 output, layer_logdet = module(
                     input, context, compute_expensive=compute_expensive)
             else:
                 output, layer_logdet = module(input, context)
-            
-            logdet += layer_logdet
-
+            if isinstance(logdet, float) or isinstance(layer_logdet, float):
+                logdet += layer_logdet
+            else:
+                logdet = logdet.to(layer_logdet.device)
+                logdet += layer_logdet
+            # print("Done ", module, "on GPU: ", torch.cuda.current_device(), " with input: ", input.device)
             # Important to keep track of module input/output for logdet
             # calculation.
             input = output

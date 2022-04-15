@@ -12,6 +12,7 @@ class Dequantization(PreprocessingFlowLayer):
     def forward(self, input, context=None):
         # Note, input is the context for distribution model.
         noise, log_qnoise = self.distribution.sample(input.size(0), input.float())
+        # noise = noise.to(input.device)
         return input + noise, -log_qnoise
 
     def reverse(self, input, context=None):

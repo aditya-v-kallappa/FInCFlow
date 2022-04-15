@@ -32,6 +32,7 @@ class ActNorm(FlowActivationLayer):
             log_scale = self.log_scale.view(1, D)
 
         out = (input - translation) * torch.exp(-log_scale)
+        # out = (input - translation.to(input.device)) * torch.exp(-log_scale).to(input.device)
 
         return out, self.logdet(input, context)
 

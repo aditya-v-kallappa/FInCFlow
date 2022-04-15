@@ -162,12 +162,60 @@ from test_layers import *
 #     print_answer=True
 # )
 
-test_FastFlowMNIST(
+# test_FastFlowMNIST(
+#     # /home/aditya.kallappa/Research/NormalizingFlows/FastFlow/fastflow
+#     # checkpoint_path="./wandb/run-20220329_113439-39od8z5l/files/checkpoint.tar",
+#     true_inverse=False,
+#     batch_size=100,
+#     plot=True
+# )
+
+# test_GlowMNIST(
+#     checkpoint_path='./wandb/checkpoint.tar'
+# )
+
+test_FastFlow(
     # /home/aditya.kallappa/Research/NormalizingFlows/FastFlow/fastflow
-    checkpoint_path="./wandb/run-20220329_113439-39od8z5l/files/checkpoint.tar",
-    plot=False
+    # checkpoint_path="./wandb/run-20220329_113439-39od8z5l/files/checkpoint.tar",
+    true_inverse=True,
+    batch_size=100,
+    plot=True
 )
 
-test_GlowMNIST(
-    checkpoint_path='./wandb/checkpoint.tar'
+# test_Preprocess(
+#     x=torch.rand((10, 20, 50, 100)),         #cannot be tested with is_input=False
+#     is_input=False
+# )
+
+# test_GlowStep(
+#     x=torch.rand((10, 20, 50, 100)),         #cannot be tested with is_input=False
+#     is_input=True
+# )
+
+# test_FastFlowStep(
+#     x=torch.rand((10, 20, 50, 100)),         #cannot be tested with is_input=False
+#     is_input=True
+# )
+
+test_FastFlow_(
+    x=torch.rand((10, 3, 32, 32)),         #cannot be tested with is_input=False
+    is_input=True
 )
+
+
+# test_Split(
+#     x=torch.rand((10, 20, 25, 25)),         #cannot be tested with is_input=False
+#     is_input=True
+# )
+
+# test_Gaussianize(
+#     x=torch.rand((10, 20, 25, 25)),         #cannot be tested with is_input=False
+#     is_input=True,
+#     with_zeros=True
+# )
+
+# test_FastFlowLevel(
+#     x=torch.rand((10, 8, 32, 32)),         #cannot be tested with is_input=False
+#     is_input=True
+# )
+
