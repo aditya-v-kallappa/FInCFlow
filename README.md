@@ -1,5 +1,5 @@
 # FastFlow
-Generating Images using Normalizing Flows with Invertible Convolution
+Generating Images using Fast Normalizing Flows with Invertible Convolution
 
 
 ## Developing in ada
