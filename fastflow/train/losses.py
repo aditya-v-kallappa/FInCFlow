@@ -22,6 +22,7 @@ class NegativeGaussianLoss(nn.Module):
         super().__init__()
         self.size = size
         self.dim = dim = int(np.prod(size))
+        print(size)
         self.N = MultivariateNormal(torch.zeros(dim, device='cuda'),
                                     torch.eye(dim, device='cuda'),
                                     validate_args=None)

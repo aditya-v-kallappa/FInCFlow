@@ -15,8 +15,7 @@ from layers.transforms import LogitTransform
 from layers.coupling import Coupling
 from train.losses import NegativeGaussianLoss
 from train.experiment import Experiment
-from datasets.mnist import load_data as load_data_mnist
-from datasets.cifar10 import load_data as load_data_cifar
+from datasets.imagenet import load_data
 from layers.flowlayer import FlowLayer
 from train.experiment import Experiment
 from layers.conv import PaddedConv2d#, Conv1x1
@@ -355,22 +354,25 @@ if __name__ == '__main__':
     # dd/mm/YY HH/MM/SS
     date_time = now.strftime("%d:%m:%Y %H:%M:%S")
     lr = 1e-3
-    optimizer_ = 'Adamax_wd_0.0001'
+    optimizer_ = 'Adam'
     scheduler_ = 'Exponential_0.99'
+
+    data_dir = '/scratch/aditya.kallappa/Imagenet'
+
     multi_gpu = False
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch.cuda.device_count() > 1:
         multi_gpu = True
     run_name = f'{optimizer_}_{scheduler_}_{lr}_{date_time}'
     config = {
-        'name': f'3L-48K FastFlow_CIFAR_{run_name}',
+        'name': f'3L-32K FastFlow_Imagenet64_{run_name}',
         'eval_epochs': 1,
         'sample_epochs': 1,
         'log_interval': 100,
         'lr': lr,
         'num_blocks': 3,
-        'block_size': 48,
-        'batch_size': 240,
+        'block_size': 32,
+        'batch_size': 100,
         'modified_grad': False,
         'add_recon_grad': False,
         'sym_recon_grad': False,
@@ -381,27 +383,32 @@ if __name__ == '__main__':
         'sample_true_inv': False,
         'plot_recon': True,
         'grad_clip_norm': None,
-        'dataset': 'CIFAR',
+        'dataset': 'imagenet64',
         'run_name': f'{run_name}',
-        'wandb_project': 'fast-flow-CIFAR-new',
+        'wandb_project': 'fast-flow-imagenet64',
         'Optimizer': optimizer_,
         'Scheduler': scheduler_,
         'multi_gpu': multi_gpu,
-        'loss_bpd': False
+        'loss_bpd': False,
+        'resolution':64
     }
 
-    train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=config['batch_size'])
+    train_loader, val_loader, test_loader = load_data(data_aug=True, 
+                                                      batch_size=config['batch_size'],
+                                                      resolution=config['resolution'],
+                                                      data_dir=data_dir)
 
     model = FastFlow(n_blocks=config['num_blocks'],
                      block_size=config['block_size'],
                      actnorm=config['actnorm'],
-                     image_size=(3, 32, 32))#.to("cuda")
+                     image_size=(3, 64, 64))#.to("cuda")
+
     if config['multi_gpu']:
         model = nn.DataParallel(model)
     
     model = model.to('cuda')
     
-    optimizer = optim.Adamax(model.parameters(), lr=config['lr'], weight_decay=0.0001)
+    optimizer = optim.Adam(model.parameters(), lr=config['lr'])#, weight_decay=0.0001)
     # scheduler = StepLR(optimizer, step_size=25, gamma=0.1)
     scheduler = ExponentialLR(optimizer, gamma=0.99, last_epoch=-1)
     # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=3, threshold=10) 

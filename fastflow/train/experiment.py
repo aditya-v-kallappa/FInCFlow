@@ -138,7 +138,7 @@ class Experiment:
             # if e % self.config['vis_epochs'] == 0:
             #     self.filter_vis()
                 
-            if self.config['Scheduler'] == 'ReduceLROnPlateau':
+            if 'ReduceLROnPlateau' in self.config['Scheduler']:
                 self.scheduler.step(avg_loss)
             elif self.config['Scheduler'] == 'None':
                 pass
@@ -164,6 +164,8 @@ class Experiment:
             lossval = -self.model.log_prob(x, compute_expensive=compute_expensive)  
         lossval[lossval != lossval] = 0.0 # Replace NaN's with 0      
         lossval = (lossval).sum() / len(x)
+        if self.config['loss_bpd']:
+            lossval = self.to_bpd(lossval)
         return lossval
 
     def warmup_lr(self, epoch, num_batches):

@@ -174,13 +174,13 @@ from test_layers import *
 #     checkpoint_path='./wandb/checkpoint.tar'
 # )
 
-test_FastFlow(
-    # /home/aditya.kallappa/Research/NormalizingFlows/FastFlow/fastflow
-    # checkpoint_path="./wandb/run-20220329_113439-39od8z5l/files/checkpoint.tar",
-    true_inverse=True,
-    batch_size=100,
-    plot=True
-)
+# test_FastFlow(
+#     # /home/aditya.kallappa/Research/NormalizingFlows/FastFlow/fastflow
+#     # checkpoint_path="./wandb/run-20220329_113439-39od8z5l/files/checkpoint.tar",
+#     true_inverse=False,
+#     batch_size=64,
+#     plot=True
+# )
 
 # test_Preprocess(
 #     x=torch.rand((10, 20, 50, 100)),         #cannot be tested with is_input=False
@@ -197,10 +197,10 @@ test_FastFlow(
 #     is_input=True
 # )
 
-test_FastFlow_(
-    x=torch.rand((10, 3, 32, 32)),         #cannot be tested with is_input=False
-    is_input=True
-)
+# test_FastFlow_(
+#     x=torch.rand((10, 3, 32, 32)),         #cannot be tested with is_input=False
+#     is_input=True
+# )
 
 
 # test_Split(
@@ -218,4 +218,11 @@ test_FastFlow_(
 #     x=torch.rand((10, 8, 32, 32)),         #cannot be tested with is_input=False
 #     is_input=True
 # )
+
+
+test_inverse_PaddedConv2d(in_channels=1, out_channels=None, kernel_size=(3, 3), bias=True, order='TL', batch_size=1, image_size=(28, 28))
+test_inverse_PaddedConv2d(in_channels=3, out_channels=None, kernel_size=(3, 3), bias=True, order='TR', batch_size=1, image_size=(32, 32))
+test_inverse_PaddedConv2d(in_channels=10, out_channels=None, kernel_size=(3, 3), bias=True, order='BL', batch_size=10, image_size=(50, 50))
+test_inverse_PaddedConv2d(in_channels=20, out_channels=None, kernel_size=(5, 5), bias=True, order='BR', batch_size=100, image_size=(128, 128))
+test_inverse_PaddedConv2d(in_channels=50, out_channels=None, kernel_size=(3, 3), bias=True, order='TL', batch_size=10, image_size=(256, 256))
 

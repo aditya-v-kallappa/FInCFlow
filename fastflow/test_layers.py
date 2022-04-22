@@ -20,10 +20,11 @@ from layers.coupling import Coupling
 from train.losses import NegativeGaussianLoss
 from train.experiment import Experiment
 from datasets.mnist import load_data
+from datasets.cifar10 import load_data as load_data_cifar
 from layers.flowlayer import ModifiedGradFlowLayer
 from fastflow_mnist import create_model as create_model_fastflow
 from glow_mnist import create_model as create_model_glow
-from model_seperate import FastFlow, Split
+from fastflow_cifar_multi_gpu import FastFlow, Split
 
 def test_PaddedConv2d(x=None, w=None, kernel_size=(3, 3), bias=False, order='TL', is_input=True, print_answer=False):
     if x is None:
@@ -446,9 +447,10 @@ def test_GlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=1):
 
 def test_FastFlow(model=None, checkpoint_path=None, x=None, batch_size=25, plot=True, true_inverse=True):
     if model is None:
-        model = FastFlow(n_blocks=2,
-                            block_size=16,
-                            actnorm=True).to('cuda')
+        model = FastFlow(n_blocks=3,
+                            block_size=48,
+                            actnorm=True,
+                            image_size=(3, 32, 32)).to('cuda')
     check = 'untrained'
     if checkpoint_path:
         print("Loading from ", checkpoint_path)
@@ -461,7 +463,8 @@ def test_FastFlow(model=None, checkpoint_path=None, x=None, batch_size=25, plot=
         check = 'trained'
 
     if not x:
-        train_loader, val_loader, test_loader = load_data(data_aug=False, batch_size=batch_size)
+        # train_loader, val_loader, test_loader = load_data(data_aug=False, batch_size=batch_size)
+        train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=batch_size)
         for x, label in test_loader:
             x = x.cuda()
             break
@@ -470,22 +473,22 @@ def test_FastFlow(model=None, checkpoint_path=None, x=None, batch_size=25, plot=
     
     model.eval()
 
-    reconstructed_image = reconstruct_ms(model, x, true_inverse)
+    x_hat = reconstruct_ms(model, x, true_inverse)
 
     if plot:
         torchvision.utils.save_image(
-            reconstructed_image / 256., f'{true_inverse}_reconstructFF_{check}.png', nrow=10,
+            x_hat / 256., f'{true_inverse}_cifar_reconstructFF_{check}.png', nrow=8,
             padding=2, normalize=False)
 
         torchvision.utils.save_image(
-            x / 256., f'{true_inverse}_originalFF_{check}.png', nrow=10,
+            x / 256., f'{true_inverse}_cifar_originalFF_{check}.png', nrow=8,
             padding=2, normalize=False)
 
-    print("Error:", torch.mean((x - reconstructed_image) ** 2).item())
+    print("Error:", torch.mean((x - x_hat) ** 2).item())
 
 
 
-from model_seperate import Preprocess, GlowStep, FastFlowStep, FastFlowLevel, Split, Gaussianize
+from fastflow_cifar_multi_gpu import Preprocess, GlowStep, FastFlowStep, FastFlowLevel, Split, Gaussianize
 
 def test_Preprocess(x, is_input=True):
     B, C, H, W = x.shape
@@ -583,4 +586,88 @@ def test_FastFlow_(x, is_input=True):
         reverse_input = layer.reverse(x)
         forward_output, _ = layer.forward(reverse_input)
         print("Error:", torch.mean((x - forward_output) ** 2).item())
+
+def test_inverse_PaddedConv2d(in_channels=3, out_channels=None, kernel_size=(3, 3), bias=True, order='TL', batch_size=1, image_size=(3, 3)):
+    print("-----------------------------------------------------")
+    if out_channels is None:
+        out_channels = in_channels
+    assert in_channels == out_channels, "Input and Output channels have to be the same"
+    padded_conv = PaddedConv2d(in_channels, out_channels, kernel_size, bias, order).cuda()
+    padded_conv.eval()
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    input = torch.randn((batch_size, in_channels, image_size[0], image_size[1]))
+    input = torch.tensor(input, dtype=torch.float).cuda()
+    print("Input Shape:", input.shape)
+    print("Order:", order)
+    print("Kernel: ", kernel_size)
+    B, C, H, W = input.shape
+    output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    t = time.process_time()
+    conv_output, _ = padded_conv(input)
+    forward_time = time.process_time() - t
+
+
+    t = time.process_time()
+    reverse_input_cython, _ = padded_conv.reverse(conv_output)
+    reverse_time_cython = time.process_time() - t
+    
+    error_cython = torch.mean((input - reverse_input_cython) ** 2)
+
+    t = time.process_time()
+    # reverse_input_python, _ = padded_conv.reverse_python(conv_output)
+    reverse_time_python = time.process_time() - t
+    
+    # error_python = torch.mean((input - reverse_input_python) ** 2)
+
+
+    t = time.process_time()
+    reverse_input_cuda, _ = padded_conv.reverse_cuda(conv_output)
+    reverse_time_cuda = time.process_time() - t
+    
+    error_cuda = torch.mean((input - reverse_input_cuda) ** 2)
+
+    # print(f"MSE Python : {error_python}")
+    print(f"MSE Cython : {error_cython}")
+    print(f"MSE Cuda Level 1 : {error_cuda}")
+
+    print(f"Forward Time : {forward_time}s")
+    # print(f"Reverse Time Python: {reverse_time_python}s")
+    print(f"Reverse Time Cython: {reverse_time_cython}s")
+    print(f"Reverse Time Cuda Level 1: {reverse_time_cuda}s")
+
+
+def test_inverse_FastFlowUnit(in_channels=4, out_channels=None, kernel_size=(3, 3), batch_size=1, image_size=(3, 3)):
+    print("-----------------------------------------------------")
+    if out_channels is None:
+        out_channels = in_channels
+    assert in_channels == out_channels, "Input and Output channels have to be the same"
+    fastflowunit = FastFlowUnit(in_channels, out_channels, kernel_size).cuda()
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    input = torch.randn((batch_size, in_channels, image_size[0], image_size[1]))
+    input = torch.tensor(input, dtype=torch.float).cuda()
+    
+    B, C, H, W = input.shape
+    output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    t = time.process_time()
+    conv_output, _ = fastflowunit(input)
+    forward_time = time.process_time() - t
+    t = time.process_time()
+    reverse_input = fastflowunit.reverse(conv_output)
+    reverse_time = time.process_time() - t
+
+    t = time.process_time()
+    reverse_input_level2 = fastflowunit.reverse_level2(conv_output)
+    reverse_time_level2 = time.process_time() - t
+    
+    error_level1 = torch.mean((input - reverse_input) ** 2)
+    error_level2 = torch.mean((input - reverse_input_level2) ** 2)
+
+    print(f"MSE Level 1 : {error_level1}")
+    print(f"MSE Level 2 : {error_level2}")
+    print(f"Forward Time : {forward_time}s")
+    print(f"Level 1 Reverse Time : {reverse_time}s")
+    print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
 

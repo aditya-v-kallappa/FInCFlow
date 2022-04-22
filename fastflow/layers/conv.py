@@ -6,6 +6,12 @@ from utils.solve_mc import solve
 from .flowlayer import FlowLayer
 import numpy as np
 
+from torch.utils.cpp_extension import load
+
+cinc_cuda_level1 = load(
+    'cinc_cuda_level1', ['utils/fastflow_cuda_inverse/cinc_cuda_level1.cpp', 'utils/fastflow_cuda_inverse/cinc_cuda_kernel_level1.cu'], verbose=True)
+
+
 # def _reverse(x, conv_w=None):
 #     """
 #     TO be implemented in CUDA
@@ -157,6 +163,61 @@ class PaddedConv2d(FlowLayer):
         # ys = solve_seq.solve(x_np, conv_w_np, self.kernel_size)
         logdet = 0
         return y, logdet
+
+    def reverse_python(self, x):
+        input = x
+        C = x.shape[1]
+        if self.conv.bias is not None:
+            x = x - self.conv.bias.reshape(-1, C, 1, 1)
+        if self.order == 'TR':
+            x = torch.flip(x, [3])
+            y = solve(x, torch.flip(self.conv.weight.data, [3]), self.kernel_size)
+            y = torch.flip(y, [3])
+        
+        elif self.order == 'BL':
+            x = torch.flip(x, [2])
+            y = solve(x, torch.flip(self.conv.weight.data, [2]), self.kernel_size)
+            y = torch.flip(y, [2])
+        
+        elif self.order == 'BR':
+            x = torch.flip(x, [2, 3])
+            y = solve(x, torch.flip(self.conv.weight.data, [2, 3]), self.kernel_size)
+            y = torch.flip(y, [2, 3])
+        else:
+            y = solve(x, self.conv.weight.data, self.kernel_size)
+        
+
+        logdet = 0
+        return y, logdet
+
+    def reverse_cuda(self, x):
+        input = x
+        y = torch.zeros_like(x).to(x.device)
+        C = x.shape[1]
+        if self.conv.bias is not None:
+            x = x - self.conv.bias.reshape(-1, C, 1, 1)
+        if self.order == 'TR':
+            x = torch.flip(x, [3])
+            kernel = torch.flip(self.conv.weight.data, [3])
+            y = cinc_cuda_level1.inverse(x, kernel, y)[0]
+            y = torch.flip(y, [3])
+        
+        elif self.order == 'BL':
+            x = torch.flip(x, [2])
+            kernel = torch.flip(self.conv.weight.data, [2])
+            y = cinc_cuda_level1.inverse(x, kernel, y)[0]
+            y = torch.flip(y, [2])
+        
+        elif self.order == 'BR':
+            x = torch.flip(x, [2, 3])
+            kernel = torch.flip(self.conv.weight.data, [2, 3])
+            y = cinc_cuda_level1.inverse(x, kernel, y)[0]
+            y = torch.flip(y, [2, 3])
+        else:
+            kernel = self.conv.weight.data
+            y = cinc_cuda_level1.inverse(x, kernel, y)[0]
+        
+        return y, 0.0
 
     def logdet(self, x, context=None):
         return 0.0
