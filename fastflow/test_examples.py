@@ -177,8 +177,8 @@ from test_layers import *
 # test_FastFlow(
 #     # /home/aditya.kallappa/Research/NormalizingFlows/FastFlow/fastflow
 #     # checkpoint_path="./wandb/run-20220329_113439-39od8z5l/files/checkpoint.tar",
-#     true_inverse=False,
-#     batch_size=64,
+#     true_inverse=True,
+#     batch_size=100,
 #     plot=True
 # )
 
@@ -220,9 +220,21 @@ from test_layers import *
 # )
 
 
-test_inverse_PaddedConv2d(in_channels=1, out_channels=None, kernel_size=(3, 3), bias=True, order='TL', batch_size=1, image_size=(28, 28))
-test_inverse_PaddedConv2d(in_channels=3, out_channels=None, kernel_size=(3, 3), bias=True, order='TR', batch_size=1, image_size=(32, 32))
-test_inverse_PaddedConv2d(in_channels=10, out_channels=None, kernel_size=(3, 3), bias=True, order='BL', batch_size=10, image_size=(50, 50))
-test_inverse_PaddedConv2d(in_channels=20, out_channels=None, kernel_size=(5, 5), bias=True, order='BR', batch_size=100, image_size=(128, 128))
-test_inverse_PaddedConv2d(in_channels=50, out_channels=None, kernel_size=(3, 3), bias=True, order='TL', batch_size=10, image_size=(256, 256))
+# test_inverse_PaddedConv2d(in_channels=1, out_channels=None, kernel_size=(3, 3), bias=True, order='TL', batch_size=1, image_size=(28, 28))
+# test_inverse_PaddedConv2d(in_channels=3, out_channels=None, kernel_size=(3, 3), bias=True, order='TR', batch_size=1, image_size=(32, 32))
+# test_inverse_PaddedConv2d(in_channels=10, out_channels=None, kernel_size=(3, 3), bias=True, order='BL', batch_size=10, image_size=(50, 50))
+# test_inverse_PaddedConv2d(in_channels=20, out_channels=None, kernel_size=(5, 5), bias=True, order='BR', batch_size=100, image_size=(128, 128))
+# test_inverse_PaddedConv2d(in_channels=50, out_channels=None, kernel_size=(3, 3), bias=True, order='TL', batch_size=10, image_size=(256, 256))
+# test_inverse_Glow_MNIST(n_blocks=2, block_size=16, batch_size=100, image_size=(1, 28, 28))
+# test_inverse_Glow_MNIST(n_blocks=2, block_size=16, batch_size=1, image_size=(1, 28, 28))
+# test_inverse_FastFlow_MNIST(n_blocks=2, block_size=16, batch_size=1, image_size=(1, 28, 28))
+# test_inverse_FastFlow_MNIST(n_blocks=2, block_size=16, batch_size=50, image_size=(1, 28, 28))
+test_inverse_FastFlow_CIFAR(n_blocks=3, block_size=28, batch_size=1, image_size=(3, 32, 32))
+# test_inverse_FastFlow_CIFAR(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32))
+# test_inverse_FastFlow_CIFAR(n_blocks=3, block_size=48, batch_size=1, image_size=(3, 32, 32))
+# test_inverse_FastFlow_CIFAR(n_blocks=3, block_size=48, batch_size=100, image_size=(3, 32, 32))
+
+
+# test_inverse_FastFlow_Imagenet64(n_blocks=3, block_size=32, batch_size=1, image_size=(3, 64, 64))
+# test_inverse_FastFlow_Imagenet64(n_blocks=4, block_size=50, batch_size=100, image_size=(3, 64, 64))
 

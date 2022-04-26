@@ -113,6 +113,9 @@ class PaddedConv2d(FlowLayer):
         return out, logdet
 
     def reverse(self, x, context=None, compute_expensive=None):
+        return self.reverse_cuda(x)
+
+    def reverse_cython(self, x):
         input = x
         C = x.shape[1]
         if self.conv.bias is not None:

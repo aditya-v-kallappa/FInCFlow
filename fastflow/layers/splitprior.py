@@ -11,10 +11,11 @@ class SplitPrior(FlowLayer):
         self.n_channels = input_size[0]
 
         self.transform = Coupling(input_size, width=width)
+
         self.base = distribution(
             (self.n_channels // 2, input_size[1], input_size[2]))
 
-    def forward(self, input, true_inverse=False, context=None):
+    def forward(self, input, context=None):
         x, ldj = self.transform(input, context)
 
         x1 = x[:, :self.n_channels // 2, :, :]
@@ -22,18 +23,14 @@ class SplitPrior(FlowLayer):
 
         log_pz2 = self.base.log_prob(x2)
         log_px2 = log_pz2 + ldj
-        if not true_inverse:
-            return x1, log_px2
-        else:
-            return x1, x2, log_px2
 
-    def reverse(self, input, true_inverse=False, context=None):
-        if not true_inverse:
-            x1 = input
-            x2, log_px2 = self.base.sample(x1.shape[0], context)
-            x = torch.cat([x1, x2], dim=1)
-        else:
-            x = input        
+        return x1, log_px2
+
+    def reverse(self, input, context=None):
+        x1 = input
+        x2, log_px2 = self.base.sample(x1.shape[0], context)
+
+        x = torch.cat([x1, x2], dim=1)
         x = self.transform.reverse(x, context)
 
         return x

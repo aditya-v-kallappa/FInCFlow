@@ -10,7 +10,8 @@ from layers.split import Split
 
 from layers import Dequantization, Normalization
 from layers.distributions.uniform import UniformDistribution
-from layers.splitprior import SplitPrior
+# from layers.splitprior import SplitPrior
+from fastflow_cifar_multi_gpu import SplitPrior
 from layers.flowsequential import FlowSequential
 from layers.conv1x1 import Conv1x1
 from layers.actnorm import ActNorm
@@ -24,7 +25,30 @@ from datasets.cifar10 import load_data as load_data_cifar
 from layers.flowlayer import ModifiedGradFlowLayer
 from fastflow_mnist import create_model as create_model_fastflow
 from glow_mnist import create_model as create_model_glow
-from fastflow_cifar_multi_gpu import FastFlow, Split
+# from fastflow_cifar_multi_gpu import FastFlow, Split
+from fastflow_mnist_multi_gpu import FastFlow as FastFlow_MNIST
+from fastflow_mnist_multi_gpu import Split
+from fastflow_cifar_multi_gpu import FastFlow as FastFlow_CIFAR
+from fastflow_cifar_multi_gpu import FastFlow as FastFlow
+from fastflow_imagenet64_multi_gpu import FastFlow as FastFlow_Imagenet64
+from datasets.imagenet import load_data as load_data_imagenet
+
+imagenet64_data_dir = '/scratch/aditya.kallappa/Imagenet'
+
+# from prettytable import PrettyTable
+
+# def count_parameters(model):
+#     table = PrettyTable(["Modules", "Parameters"])
+#     total_params = 0
+#     for name, parameter in model.named_parameters():
+#         if not parameter.requires_grad: continue
+#         params = parameter.numel()
+#         table.add_row([name, params])
+#         total_params+=params
+#     # print(table)
+#     # print(f"Total Trainable Params: {total_params}")
+#     return total_params
+    
 
 def test_PaddedConv2d(x=None, w=None, kernel_size=(3, 3), bias=False, order='TL', is_input=True, print_answer=False):
     if x is None:
@@ -196,10 +220,10 @@ def test_Coupling(x, is_input=True):
 def test_SplitPrior(x, is_input=True, print_answer=False):
     x = x.cuda()
     B, C, H, W = x.shape
-    layer = SplitPrior(input_size=(C, H, W), distribution=NegativeGaussianLoss).to("cuda")
+    layer = SplitPrior(size=(C, H, W), distribution=NegativeGaussianLoss).to("cuda")
     if is_input:
-        forward_output, _ = layer.forward(x)
-        reverse_input = layer.reverse(forward_output)
+        forward_output, z, _ = layer.forward(x)
+        reverse_input = layer.reverse(forward_output, z)
         print("Error:", torch.mean((x - reverse_input) ** 2).item())
         
         answer = (forward_output, reverse_input)
@@ -309,9 +333,9 @@ def reconstruct_ms(model, x, true_inverse=True):
     if not true_inverse:
         # z = [model.base_distribution.sample(x.shape[0])[0]]#.squeeze()]
         # print(z.shape)
-        y = model.reverse(n_samples=x.shape[0], zs=[z[-1]])
+        y = model.reverse(n_samples=x.shape[0])#, zs=[z[-1]])
     else:
-        y = model.reverse(n_samples=x.shape[0], zs=z)
+        y = model.reverse(zs=z)
 
     return y
 
@@ -472,16 +496,17 @@ def test_FastFlow(model=None, checkpoint_path=None, x=None, batch_size=25, plot=
         x = x.cuda()
     
     model.eval()
-
-    x_hat = reconstruct_ms(model, x, true_inverse)
+    with torch.no_grad():
+        # x_hat = reconstruct_ms(model, x, true_inverse)
+        x_hat = model.reconstruct(x, true_inverse=true_inverse)
 
     if plot:
         torchvision.utils.save_image(
-            x_hat / 256., f'{true_inverse}_cifar_reconstructFF_{check}.png', nrow=8,
+            x_hat / 256., f'{true_inverse}_cifar_reconstructFF_{check}.png', nrow=10,
             padding=2, normalize=False)
 
         torchvision.utils.save_image(
-            x / 256., f'{true_inverse}_cifar_originalFF_{check}.png', nrow=8,
+            x / 256., f'{true_inverse}_cifar_originalFF_{check}.png', nrow=10,
             padding=2, normalize=False)
 
     print("Error:", torch.mean((x - x_hat) ** 2).item())
@@ -671,3 +696,195 @@ def test_inverse_FastFlowUnit(in_channels=4, out_channels=None, kernel_size=(3, 
     print(f"Level 2 Reverse Time : {reverse_time_level2}s")
 
 
+
+def test_inverse_FastFlow_MNIST(n_blocks=2, block_size= 16, batch_size=100, image_size=(1, 28, 28)):
+
+    fastflow = FastFlow_MNIST(n_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        image_size=image_size).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in fastflow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in fastflow.parameters())
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data(data_aug=False, batch_size=batch_size)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    with torch.no_grad():
+        t = time.process_time()
+        conv_output, _ = fastflow(input)
+        forward_time = time.process_time() - t
+
+        t = time.process_time()
+        reverse_input, _ = fastflow.sample(n_samples=batch_size)
+        reverse_time = time.process_time() - t
+
+    # t = time.process_time()
+    # reverse_input_level2 = fastflow.reverse_level2(conv_output)
+    # reverse_time_level2 = time.process_time() - t
+    
+    # error_level1 = torch.mean((input - reverse_input) ** 2)
+    # error_level2 = torch.mean((input - reverse_input_level2) ** 2)
+
+    # print(f"MSE Level 1 : {error_level1}")
+    # print(f"MSE Level 2 : {error_level2}")
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    print(f"Forward Time : {forward_time}s")
+    print(f"Level 2 Reverse Time : {reverse_time}s")
+    # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
+def test_inverse_FastFlow_CIFAR(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
+
+    fastflow = FastFlow_CIFAR(n_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        image_size=image_size).to('cuda')
+    fastflow.eval()
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in fastflow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in fastflow.parameters())
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=batch_size)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    print("Input", x.shape)
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    with torch.no_grad():
+        t = time.process_time()
+        conv_output, _ = fastflow(input)
+        forward_time = time.process_time() - t
+
+        t = time.process_time()
+        reverse_input, _ = fastflow.sample(n_samples=batch_size)
+        reverse_time = time.process_time() - t
+
+    # t = time.process_time()
+    # reverse_input_level2 = fastflow.reverse_level2(conv_output)
+    # reverse_time_level2 = time.process_time() - t
+    
+    # error_level1 = torch.mean((input - reverse_input) ** 2)
+    # error_level2 = torch.mean((input - reverse_input_level2) ** 2)
+
+    # print(f"MSE Level 1 : {error_level1}")
+    # print(f"MSE Level 2 : {error_level2}")
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    print(f"Forward Time : {forward_time}s")
+    print(f"Level 1 Reverse Time : {reverse_time}s")
+    # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
+def test_inverse_FastFlow_Imagenet64(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
+
+    fastflow = FastFlow_Imagenet64(n_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        image_size=image_size).to('cuda')
+    fastflow.eval()
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in fastflow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in fastflow.parameters())
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    input = torch.tensor(input, dtype=torch.float).cuda()
+    # train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, batch_size=batch_size)
+    train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, 
+                                                      batch_size=batch_size,
+                                                      resolution=64,
+                                                      data_dir=imagenet64_data_dir)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    print("Input", input.shape)
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    with torch.no_grad():
+        t = time.process_time()
+        conv_output, _ = fastflow(input)
+        forward_time = time.process_time() - t
+
+        t = time.process_time()
+        reverse_input, _ = fastflow.sample(n_samples=batch_size)
+        reverse_time = time.process_time() - t
+
+    # t = time.process_time()
+    # reverse_input_level2 = fastflow.reverse_level2(conv_output)
+    # reverse_time_level2 = time.process_time() - t
+    
+    # error_level1 = torch.mean((input - reverse_input) ** 2)
+    # error_level2 = torch.mean((input - reverse_input_level2) ** 2)
+
+    # print(f"MSE Level 1 : {error_level1}")
+    # print(f"MSE Level 2 : {error_level2}")
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    print(f"Forward Time : {forward_time}s")
+    print(f"Level 2 Reverse Time : {reverse_time}s")
+    # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
+
+def test_inverse_Glow_MNIST(n_blocks=2, block_size= 16, batch_size=100, image_size=(1, 28, 28)):
+
+    glow = create_model_glow(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in glow.parameters())
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data(data_aug=False, batch_size=batch_size)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    t = time.process_time()
+    conv_output, _ = glow(input)
+    forward_time = time.process_time() - t
+
+    t = time.process_time()
+    reverse_input, _ = glow.sample(n_samples=batch_size)
+    reverse_time = time.process_time() - t
+
+    # t = time.process_time()
+    # reverse_input_level2 = glow.reverse_level2(conv_output)
+    # reverse_time_level2 = time.process_time() - t
+    
+    # error_level1 = torch.mean((input - reverse_input) ** 2)
+    # error_level2 = torch.mean((input - reverse_input_level2) ** 2)
+
+    # print(f"MSE Level 1 : {error_level1}")
+    # print(f"MSE Level 2 : {error_level2}")
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    print(f"Forward Time : {forward_time}s")
+    print(f"Level 2 Reverse Time : {reverse_time}s")
+    # print(f"Level 2 Reverse Time : {reverse_time_level2}s")

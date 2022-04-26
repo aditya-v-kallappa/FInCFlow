@@ -25,7 +25,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 default_config = {
         'name': 'FastFlow_MNIST',
         'notes': None,
-        'wandb': True,
+        'wandb': False,
         'wandb_project': 'fast-flow-run',
         'wandb_entity': 'fast-flow',
         'log_timing': False,

@@ -6,7 +6,7 @@ from torch.optim.lr_scheduler import StepLR, MultiStepLR, ReduceLROnPlateau, Exp
 
 from layers import Dequantization, Normalization
 from layers.distributions.uniform import UniformDistribution
-from layers.splitprior import SplitPrior
+# from layers.splitprior import SplitPrior
 from layers.flowsequential import FlowSequential
 from layers.conv1x1 import Conv1x1
 from layers.actnorm import ActNorm
@@ -36,6 +36,44 @@ def clear_grad(module):
         # print(module.order)
         # print(module.conv.weight.data)
         # print(module.conv.weight.grad)
+
+class SplitPrior(FlowLayer):
+    def __init__(self, size, distribution, width=512):
+        super().__init__()
+        assert len(size) == 3
+        self.n_channels = size[0]
+
+        self.transform = Coupling(size, width=width)
+
+        self.base = distribution(
+            (self.n_channels // 2, size[1], size[2]))
+
+    def forward(self, input, context=None):
+        x, ldj = self.transform(input, context)
+
+        x1 = x[:, :self.n_channels // 2, :, :]
+        x2 = x[:, self.n_channels // 2:, :, :]
+
+        log_pz2 = self.base.log_prob(x2)
+        log_px2 = log_pz2 + ldj
+
+        return x1, x2, log_px2
+
+    def reverse(self, input, x2=None, context=None):
+        x1 = input
+        if x2 is None:
+            x2, log_px2 = self.base.sample(x1.shape[0], context)
+
+        x = torch.cat([x1, x2], dim=1)
+        x = self.transform.reverse(x, context)
+
+        return x
+
+    def logdet(self, input, context=None):
+        x1, ldj = self.forward(input, context)
+        return ldj
+
+
 
 class Split(FlowLayer):
     """ Split layer; cf Glow figure 2 / RealNVP figure 4b
@@ -225,7 +263,8 @@ class FastFlowLevel(nn.Module):
         squeeze = Squeeze()
         size = (size[0] * 4, size[1] // 2, size[2] // 2)
         # split = SplitPrior(size, NegativeGaussianLoss)
-        split = Split(size, NegativeGaussianLoss)
+        # split = Split(size, NegativeGaussianLoss)
+        split = SplitPrior(size, NegativeGaussianLoss)
         self.fastflow_level = nn.ModuleList([
             squeeze,
             *[FastFlowStep(size, actnorm) for _ in range(block_size)],
@@ -238,7 +277,7 @@ class FastFlowLevel(nn.Module):
         # x, layer_logdet = self.glow_unit(x, context=None)
         # logdet += layer_logdet
         for layer in self.fastflow_level:
-            if not isinstance(layer, Split):
+            if not isinstance(layer, SplitPrior):
                 x, layer_logdet = layer(x)
             else:
                 x, z, layer_logdet = layer(x)
@@ -249,7 +288,7 @@ class FastFlowLevel(nn.Module):
         for layer in reversed(self.fastflow_level):
             # print("In FastFlowLevel Reverse")
             # print(layer)
-            if not isinstance(layer, Split):
+            if not isinstance(layer, SplitPrior):
                 x = layer.reverse(x)#, context=None)
             else:
                 x = layer.reverse(x, z)
@@ -271,7 +310,7 @@ class FastFlow(nn.Module):
         self.preprocess = Preprocess(size=size)
         self.fastflow_levels = nn.ModuleList([FastFlowLevel((C_in * (2**i), H//(2**i), W//(2**i)), block_size, actnorm) for i in range(n_levels)])
         self.squeeze = Squeeze()
-        self.fastflow_step = FastFlowStep(self.output_size, actnorm)
+        self.fastflow_step = nn.Sequential(*[FastFlowStep(self.output_size, actnorm) for _ in range(block_size)])
         self.gaussianize = Gaussianize(C_out)
         self.base_distribution = NegativeGaussianLoss(size=self.output_size)
 
@@ -289,11 +328,14 @@ class FastFlow(nn.Module):
         x, layer_logdet = self.squeeze(x)
         logdet += layer_logdet
         # print("Outside Squeeze:", x.shape, torch.cuda.current_device())
-        x, layer_logdet = self.fastflow_step(x)
-        logdet += layer_logdet
+        # x, layer_logdet = self.fastflow_step(x)
+        for module in self.fastflow_step:
+            x, layer_logdet = module(x)
+            logdet += layer_logdet
+
         # print("After Outside step", x.shape, torch.cuda.current_device())
-        x, layer_logdet = self.gaussianize(torch.zeros_like(x), x)
-        logdet += layer_logdet     
+        # x, layer_logdet = self.gaussianize(torch.zeros_like(x), x)
+        # logdet += layer_logdet     
         logdet += self.base_distribution.log_prob(x)     
         zs.append(x)
         # print("Output:", x.shape, torch.cuda.current_device())
@@ -306,10 +348,14 @@ class FastFlow(nn.Module):
             zs = self.base_distribution.sample(n_samples)[0]
             zs = [zs]
         
-        z = self.gaussianize.reverse(torch.zeros_like(zs[-1]),zs[-1])
+        # z = self.gaussianize.reverse(torch.zeros_like(zs[-1]),zs[-1])
+        z = zs[-1]
         # print("After inverse gaussianize", z.shape)
-        x = self.fastflow_step.reverse(z)
-        x = self.squeeze.reverse(x)
+        for module in reversed(self.fastflow_step):
+            z = module.reverse(z)
+
+        # x = self.fastflow_step.reverse(z)
+        x = self.squeeze.reverse(z)
 
         for i, m in enumerate(reversed(self.fastflow_levels)):
             
@@ -343,10 +389,7 @@ class FastFlow(nn.Module):
     def reconstruct(self, x, context=None, compute_expensive=False):
         zs, _ = self.forward(x)
         x = self.reverse(n_samples=x.shape[0], zs=[zs[-1]])   
-        return x
-
-
-# 
+        return x     
         
 if __name__ == '__main__':
 
@@ -354,8 +397,8 @@ if __name__ == '__main__':
     # dd/mm/YY HH/MM/SS
     date_time = now.strftime("%d:%m:%Y %H:%M:%S")
     lr = 1e-3
-    optimizer_ = 'Adamax_wd_0.0001'
-    scheduler_ = 'Exponential_0.99'
+    optimizer_ = 'Adam'
+    scheduler_ = 'Step_LR_25'
     multi_gpu = False
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch.cuda.device_count() > 1:
@@ -382,7 +425,7 @@ if __name__ == '__main__':
         'grad_clip_norm': None,
         'dataset': 'MNIST',
         'run_name': f'{run_name}',
-        'wandb_project': 'fast-flow-MNIST-new',
+        'wandb_project': 'fast-flow-MNIST-Matched',
         'Optimizer': optimizer_,
         'Scheduler': scheduler_,
         'multi_gpu': multi_gpu,
@@ -401,8 +444,8 @@ if __name__ == '__main__':
     model = model.to('cuda')
     
     optimizer = optim.Adamax(model.parameters(), lr=config['lr'])#, weight_decay=0.0001)
-    # scheduler = StepLR(optimizer, step_size=25, gamma=0.1)
-    scheduler = ExponentialLR(optimizer, gamma=0.99, last_epoch=-1)
+    scheduler = StepLR(optimizer, step_size=25, gamma=0.1)
+    # scheduler = ExponentialLR(optimizer, gamma=0.99, last_epoch=-1)
     # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=3, threshold=10) 
     experiment = Experiment(model, train_loader, val_loader, test_loader,
                             optimizer, scheduler, **config)
