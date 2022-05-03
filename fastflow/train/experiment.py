@@ -23,7 +23,7 @@ def clear_grad(module):
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 default_config = {
-        'name': 'FastFlow_MNIST',
+        'name': 'FastFlow_CIFAR',
         'notes': None,
         'wandb': False,
         'wandb_project': 'fast-flow-run',
@@ -40,7 +40,7 @@ default_config = {
         'grad_clip_norm': None,
         'eval_epochs': 1,
         'lr': 1e-5,
-        'warmup_epochs': 0,
+        'warmup_epochs': 10,
         'modified_grad': True,
         'add_recon_grad': True,
         'sample_true_inv': False,
@@ -85,14 +85,26 @@ class Experiment:
         if self.config['checkpoint_path'] is None and self.config['wandb']:
             self.config['checkpoint_path'] = os.path.join(wandb.run.dir,
                                                           'checkpoint.tar')
+            checkpoint_path = f"./{str(self.config['name']).replace(' ', '_')}_checkpoint.tar"
+            self.config['checkpoint_path'] = checkpoint_path
+            self.update_summary('Epoch', 0)
+            self.update_summary("Best Val LogPx", float('inf'))
+            self.update_summary("Test LogPx", float('inf'))
+
         elif self.config['checkpoint_path'] is None:
             checkpoint_path = f"./{str(self.config['name']).replace(' ', '_')}_checkpoint.tar"
             self.log('Warning', f'No checkpoint path specified, defaulting to {checkpoint_path}')
             self.config['checkpoint_path'] = checkpoint_path
+            self.update_summary('Epoch', 0)
+            self.update_summary("Best Val LogPx", float('inf'))
+            self.update_summary("Test LogPx", float('inf'))
 
-        self.update_summary('Epoch', 0)
-        self.update_summary("Best Val LogPx", float('inf'))
-        self.update_summary("Test LogPx", float('inf'))
+        elif self.config is not None:
+            self.load(self.config['checkpoint_path'])
+            print("Loaded model from ", self.config['checkpoint_path'])
+            print(self.summary)
+
+        
 
         if self.config['log_timing']:
             self.batch_time = StatsRecorder()
@@ -100,10 +112,11 @@ class Experiment:
 
     def run(self):
         early_stop_epoch_count = 0
+        best_train_loss = float('inf')
         for e in range(self.summary['Epoch'] + 1, self.config['epochs'] + 1):
-            if early_stop_epoch_count == self.config['early_stop_epochs']:
-                print("Stopping early!")
-                break
+            # if early_stop_epoch_count == self.config['early_stop_epochs']:
+            #     print("Stopping early!")
+            #     break
             self.update_summary('Epoch', e)
             avg_loss = self.train_epoch(e)
             self.log('Train Avg Loss', avg_loss)
@@ -128,9 +141,11 @@ class Experiment:
 
                     # Checkpoint model
                     self.save()
-                    early_stop_epoch_count = 0
-                else:
-                    early_stop_epoch_count += 1
+                # if avg_loss < best_train_loss:
+                #     early_stop_epoch_count = 0
+                #     best_train_loss = avg_loss
+                # elif abs(avg_loss - best_train_loss) > 15:
+                #     early_stop_epoch_count += 1
 
             if e < 5 or e == 10 or e % self.config['sample_epochs'] == 0:
                 self.sample(e)
