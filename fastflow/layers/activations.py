@@ -230,3 +230,25 @@ class Identity(FlowActivationLayer):
 
     def reverse(self, input, context=None):
         return input
+
+
+class SigmoidFlow(torch.nn.Module):
+    def __init__(self):
+        super(SigmoidFlow, self).__init__()
+
+    
+    def forward(self, input, context=None):
+       
+        out = input.sigmoid()
+        logdet = F.softplus(input) + F.softplus(-input)
+        logdet = logdet.view(logdet.size(0), -1).sum(dim=1) * -1.
+        return out, logdet
+
+    
+    def reverse(self, input):
+        
+        eps = 1e-12
+        out = torch.log(torch.reciprocal(input + eps) - 1.  + eps) * -1.
+        logdet = torch.log(input + eps) + torch.log((1. - input) + eps)
+        logdet = logdet.view(logdet.size(0), -1).sum(dim=1) * -1.
+        return out, logdet

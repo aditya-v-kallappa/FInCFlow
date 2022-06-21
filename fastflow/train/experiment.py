@@ -25,7 +25,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 default_config = {
         'name': 'FastFlow_CIFAR',
         'notes': None,
-        'wandb': False,
+        'wandb': True,
         'wandb_project': 'fast-flow-run',
         'wandb_entity': 'fast-flow',
         'log_timing': False,
@@ -45,7 +45,7 @@ default_config = {
         'add_recon_grad': True,
         'sample_true_inv': False,
         'plot_recon': False,
-        'checkpoint_path': None,
+        'checkpoint_path': None, #'/home/aditya.kallappa/Research/NormalizingFlows/FastFlow/fastflow/wandb/3L-32K_FastFlow_CIFAR_Epoch_14.tar',
         'early_stop_epochs': 10
     }
 
@@ -161,7 +161,7 @@ class Experiment:
                 self.scheduler.step()
 
     def log(self, name, val):
-        print(f"{name}: {val}")
+        # print(f"{name}: {val}")
         if self.config['wandb']: wandb.log({name: val})
 
     def update_summary(self, name, val):
@@ -173,14 +173,37 @@ class Experiment:
         compute_expensive = not self.config['modified_grad']
         if self.config['multi_gpu']:
             # lossval = -self.model.log_prob(x, compute_expensive=compute_expensive)  
-            _, lossval = self.model.forward(x)
+            y, lossval = self.model.forward(x)
             lossval = -lossval
+            # print("Batch Loss:", (lossval).sum() / len(x))
         else:
-            lossval = -self.model.log_prob(x, compute_expensive=compute_expensive)  
+            # lossval = -self.model.log_prob(x, compute_expensive=compute_expensive)  
+            y, lossval = self.model.forward(x)
+            lossval = -lossval
+        # print("-"*100)
+        # print("Len of y", len(y))
+        # for i, latent_vec in enumerate(y):
+        #     # print("Max:", torch.max(_y))
+        #     # print("Min:", torch.min(_y))
+        #     # print("Mean", torch.mean(_y))
+        #     # print("Variance:", torch.var(_y))
+        #     # print("L2 Norm:", torch.norm(_y.reshape(_y.shape[0], -1)))
+        #     print(latent_vec.shape)
+        #     batch_norm = ((latent_vec ** 2).sum([1, 2, 3])) ** 0.5
+        #     batch_norm_avg = torch.mean(batch_norm)
+        #     # print('Batch Norm:', batch_norm)
+        #     # print('Average Batch Norm:', batch_norm_avg)
+        #     if self.config['wandb']:
+        #         # self.log(f'L2_Norm_{i}', batch_norm)
+        #         self.log(f'L2_Norm_Average_{i}', batch_norm_avg)
+        
+        
+        # print("Batch Loss:", (lossval).sum() / len(x))
+
         lossval[lossval != lossval] = 0.0 # Replace NaN's with 0      
         lossval = (lossval).sum() / len(x)
-        if self.config['loss_bpd']:
-            lossval = self.to_bpd(lossval)
+        # if self.config['loss_bpd']:
+        #     lossval = self.to_bpd(lossval)
         return lossval
 
     def warmup_lr(self, epoch, num_batches):
@@ -207,20 +230,26 @@ class Experiment:
                 start = torch.cuda.Event(enable_timing=True)
                 end = torch.cuda.Event(enable_timing=True)
                 start.record()
-
+            
+            # print('Batch', num_batches)
+            # torchvision.utils.save_image(
+            #             x / 256., f'test_images/current_image_{num_batches}.png', nrow=x.shape[0],
+            #             padding=2, normalize=False)  
             lossval = self.get_loss(x)
             
             lossval.backward()
             
-
+            # print("Batch Loss", lossval)
             if self.config['add_recon_grad']:
                 total_recon_loss = self.model.add_recon_grad()
  
             if self.config['grad_clip_norm'] is not None:
+                # print("Truew")
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 
                                                self.config['grad_clip_norm'])
             self.model.apply(clear_grad)
             self.optimizer.step()
+            # self.scheduler.step()
 
             if self.config['log_timing']:
                 end.record()
@@ -231,6 +260,7 @@ class Experiment:
             num_batches += 1
             if num_batches % self.config['log_interval'] == 0:
                 self.log('Train Batch Loss', lossval)
+                # self.save()
                 if self.config['add_recon_grad']:
                     self.log('Train Total Recon Loss', total_recon_loss)
 

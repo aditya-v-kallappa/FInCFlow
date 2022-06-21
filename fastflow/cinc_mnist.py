@@ -1,25 +1,40 @@
 import torch
 from torch import optim
-from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
+from torch.optim.lr_scheduler import StepLR, MultiStepLR, ReduceLROnPlateau, ExponentialLR
 
 from layers import Dequantization, Normalization
 from layers.distributions.uniform import UniformDistribution
 from layers.splitprior import SplitPrior
 from layers.flowsequential import FlowSequential
-from layers.selfnorm import SelfNormConv
+from layers.conv1x1 import Conv1x1
 from layers.actnorm import ActNorm
 from layers.squeeze import Squeeze
 from layers.transforms import LogitTransform
 from layers.coupling import Coupling
 from train.losses import NegativeGaussianLoss
 from train.experiment import Experiment
-from datasets.imagenet import load_data
+from datasets.mnist import load_data
 
 
-def create_model(num_blocks=3, block_size=48, sym_recon_grad=False, 
-                 actnorm=True, split_prior=True, recon_loss_weight=1000.0):
-    current_size = (3, 64, 64)
+from layers.conv import PaddedConv2d#, Conv1x1
+from cinc_flow import CINCFlowUnit
 
+from datetime import datetime
+
+now = datetime.now()
+
+
+# dd/mm/YY HH/MM/SS
+run_name = now.strftime("%d:%m:%Y %H:%M:%S")
+optimizer_ = "Adam"
+scheduler_ = "Exponential_0.99"
+lr = 1e-3
+
+
+def create_model(num_blocks=2, block_size=16, sym_recon_grad=False, 
+                 actnorm=False, split_prior=False, recon_loss_weight=1.0, image_size=(1, 28, 28)):
+
+    current_size = image_size
     alpha = 1e-6
     layers = [
         Dequantization(UniformDistribution(size=current_size)),
@@ -33,13 +48,11 @@ def create_model(num_blocks=3, block_size=48, sym_recon_grad=False,
         current_size = (current_size[0]*4, current_size[1]//2, current_size[2]//2)
 
         for k in range(block_size):
+            layers.append(CINCFlowUnit(current_size[0], current_size[0], (3, 3)))
             if actnorm:
                 layers.append(ActNorm(current_size[0]))
-            
-            layers.append(SelfNormConv(current_size[0], current_size[0], (1, 1), 
-                                       bias=True, stride=1, padding=0,
-                                       sym_recon_grad=sym_recon_grad, 
-                                       recon_loss_weight=recon_loss_weight))
+            # layers.append(Conv1x1(current_size[0], current_size[0]))
+            layers.append(Conv1x1(current_size[0]))
             layers.append(Coupling(current_size))
 
         if split_prior and l < num_blocks - 1:
@@ -48,36 +61,34 @@ def create_model(num_blocks=3, block_size=48, sym_recon_grad=False,
 
     return FlowSequential(NegativeGaussianLoss(size=current_size), 
                          *layers)
-
+    # return NegativeGaussianLoss(size=current_size), *layers
 
 def main():
     config = {
-        'name': '3L-48K Glow SNF Recon1000 ImageNet',
+        'name': f'2L-16K FastFlow_MNIST_{optimizer_}_{scheduler_}_{lr}_{run_name}',
         'eval_epochs': 1,
         'sample_epochs': 1,
         'log_interval': 100,
-        'lr': 1e-3,
-        'num_blocks': 3,
-        'block_size': 48,
-        'batch_size': 64,
-        'modified_grad': True,
-        'add_recon_grad': True,
+        'lr': lr,
+        'num_blocks': 2,
+        'block_size': 16,
+        'batch_size': 250,
+        'modified_grad': False,
+        'add_recon_grad': False,
         'sym_recon_grad': False,
         'actnorm': True,
         'split_prior': True,
         'activation': 'None',
-        'recon_loss_weight': 1000.0,
-        'sample_true_inv': True,
+        'recon_loss_weight': 1.0,
+        'sample_true_inv': False,
         'plot_recon': True,
-        'vis_epochs': 10_000,
-        'grad_clip_norm': 10_000,
-        'warmup_epochs': 0,
-        'step_epochs': 1,
-        'step_gamma': 1.0,
+        'dataset': 'MNIST',
+        'run_name': f'{run_name}',
+        'Optimizer': optimizer_,
+        'Scheduler': scheduler_
     }
 
-    train_loader, val_loader, test_loader = load_data(data_aug=False, resolution=32, 
-              data_dir='data/imagenet', batch_size=config['batch_size'])
+    train_loader, val_loader, test_loader = load_data(data_aug=False, batch_size=config['batch_size'])
 
     model = create_model(num_blocks=config['num_blocks'],
                          block_size=config['block_size'], 
@@ -85,11 +96,20 @@ def main():
                          actnorm=config['actnorm'],
                          split_prior=config['split_prior'],
                          recon_loss_weight=config['recon_loss_weight']).to('cuda')
-
-    optimizer = optim.Adam(model.parameters(), lr=config['lr'], betas=(0.9, 0.999))
-    scheduler = StepLR(optimizer, step_size=config['step_epochs'], gamma=config['step_gamma'])
-
+    print(model.parameters())
+    # optimizer = optim.SGD(model.parameters(), lr=config['lr'], momentum=0.9)
+    optimizer = optim.Adam(model.parameters(), lr=config['lr'])
+    # optimizer = optim.Adamax(model.parameters(), lr=config['lr'])
+    # optimizer = optim.Adam(model.parameters(), lr=config['lr'], weight_decay=0.01)
+    # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+    # scheduler = None
+    # scheduler = MultiStepLR(optimizer, milestones=[50, 100, 200, 500], gamma=0.5)   
+    # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=10, threshold=1.0) 
+    scheduler = ExponentialLR(optimizer, gamma=0.99, last_epoch=-1)
     experiment = Experiment(model, train_loader, val_loader, test_loader,
                             optimizer, scheduler, **config)
 
     experiment.run()
+
+if __name__ == '__main__':
+    main()

@@ -2,18 +2,18 @@ import torch
 from torch import optim
 from torch.optim.lr_scheduler import StepLR
 
-from snf.layers import Dequantization, Normalization
-from snf.layers.distributions.uniform import UniformDistribution
-from snf.layers.splitprior import SplitPrior
-from snf.layers.flowsequential import FlowSequential
-from snf.layers.selfnorm import SelfNormConv
-from snf.layers.actnorm import ActNorm
-from snf.layers.squeeze import Squeeze
-from snf.layers.transforms import LogitTransform
-from snf.layers.coupling import Coupling
-from snf.train.losses import NegativeGaussianLoss
-from snf.train.experiment import Experiment
-from snf.datasets.mnist import load_data
+from layers import Dequantization, Normalization
+from layers.distributions.uniform import UniformDistribution
+from layers.splitprior import SplitPrior
+from layers.flowsequential import FlowSequential
+from layers.selfnorm import SelfNormConv
+from layers.actnorm import ActNorm
+from layers.squeeze import Squeeze
+from layers.transforms import LogitTransform
+from layers.coupling import Coupling
+from train.losses import NegativeGaussianLoss
+from train.experiment import Experiment
+from datasets.mnist import load_data
 
 
 def create_model(num_blocks=2, block_size=16, sym_recon_grad=False, 

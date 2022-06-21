@@ -309,7 +309,7 @@ class FastFlow(nn.Module):
         self.fastflow_levels = nn.ModuleList([FastFlowLevel((C_in * (2**i), H//(2**i), W//(2**i)), block_size, actnorm) for i in range(n_levels)])
         self.squeeze = Squeeze()
         self.fastflow_step = nn.Sequential(*[FastFlowStep(self.output_size, actnorm) for _ in range(block_size)])
-        self.gaussianize = Gaussianize(C_out)
+        # self.gaussianize = Gaussianize(C_out)
         self.base_distribution = NegativeGaussianLoss(size=self.output_size)
 
     def forward(self, x, context=None):
@@ -395,8 +395,8 @@ if __name__ == '__main__':
     # dd/mm/YY HH/MM/SS
     date_time = now.strftime("%d:%m:%Y %H:%M:%S")
     lr = 1e-3
-    optimizer_ = 'Adam'
-    scheduler_ = 'Exponential_0.99'
+    optimizer_ = 'Rprop'
+    scheduler_ = 'Exponential_0.99997'
     multi_gpu = False
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch.cuda.device_count() > 1:
@@ -409,7 +409,7 @@ if __name__ == '__main__':
         'log_interval': 100,
         'lr': lr,
         'num_blocks': 3,
-        'block_size': 28,
+        'block_size': 32,
         'batch_size': 400,
         'modified_grad': False,
         'add_recon_grad': False,
@@ -423,7 +423,7 @@ if __name__ == '__main__':
         'grad_clip_norm': None,
         'dataset': 'CIFAR',
         'run_name': f'{run_name}',
-        'wandb_project': 'fast-flow-CIFAR-new',
+        'wandb_project': 'fast-flow-CIFAR-Matched',
         'Optimizer': optimizer_,
         'Scheduler': scheduler_,
         'multi_gpu': multi_gpu,
@@ -441,9 +441,10 @@ if __name__ == '__main__':
     
     model = model.to('cuda')
     
-    optimizer = optim.Adam(model.parameters(), lr=config['lr'])#, weight_decay=0.0001)
+    # optimizer = optim.Adam(model.parameters(), lr=config['lr'])#, weight_decay=1e-5)
+    optimizer = optim.Rprop(model.parameters(), lr=config['lr'])#, weight_decay=1e-5)
     # scheduler = StepLR(optimizer, step_size=25, gamma=0.1)
-    scheduler = ExponentialLR(optimizer, gamma=0.99, last_epoch=-1)
+    scheduler = ExponentialLR(optimizer, gamma=0.99997, last_epoch=-1)
     # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=3, threshold=10) 
     experiment = Experiment(model, train_loader, val_loader, test_loader,
                             optimizer, scheduler, **config)

@@ -97,14 +97,14 @@ def construct_matrix(x, conv_w):
     return submatrix, M
 
 B = 1
-C = 1
+C = 2
 k_size = (3, 3)
-img_size = (3, 3)
+img_size = (4, 4)
 H, W = img_size[0], img_size[1]
 conv_w = torch.randn(k_size[0] * k_size[1] * C * C).reshape(C, C, k_size[0], k_size[1])
 conv_w[:, -1, -1, -1] = 1.0
 x = torch.randn(H * W * C).reshape(B, C, H, W).to(torch.float32)
-# y = torch.ones_like(x)
+y = torch.ones_like(x)
 
 _, M = construct_matrix(x, conv_w)
 
@@ -113,25 +113,25 @@ _, M = construct_matrix(x, conv_w)
 
 # _y[0] = _x[0]
 
-# x_ticks = [h*W for h in range(H+1)]
-# y_ticks = [w*W for w in range(H+1)]
-# fig, ax = plt.subplots(figsize=(15, 15))
-# ax.matshow(M.numpy(), cmap='Reds')
-# ax.set_xticks(y_ticks)
-# ax.set_yticks(x_ticks)
-# plt.savefig("matrix.png")
-# plt.show()
+x_ticks = [h*W for h in range(H+1)]
+y_ticks = [w*W for w in range(H+1)]
+fig, ax = plt.subplots(figsize=(15, 15))
+ax.matshow(M.numpy(), cmap='seismic')
+ax.set_xticks(y_ticks)
+ax.set_yticks(x_ticks)
+plt.savefig("matrix.png")
+plt.show()
 
-inv_M = torch.tensor(np.linalg.inv(M.numpy()))
-_x = x.squeeze().flatten(0, -1)
-# print(_x.shape)
-y = (inv_M @ _x).reshape(x.shape)
+# inv_M = torch.tensor(np.linalg.inv(M.numpy()))
+# _x = x.squeeze().flatten(0, -1)
+# # print(_x.shape)
+# y = (inv_M @ _x).reshape(x.shape)
 
-_y = _solve(M, x, k_size)
-__y = solve_parallel(M, x, k_size)
-print("Error", torch.sqrt((y - _y)**2).mean())
-print("Error 2 ", torch.sqrt((y - __y)**2).mean())
-print("Error 3 ", torch.sqrt((_y - __y)**2).mean())
+# _y = _solve(M, x, k_size)
+# # __y = solve_parallel(M, x, k_size)
+# print("Error", torch.sqrt((y - _y)**2).mean())
+# print("Error 2 ", torch.sqrt((y - __y)**2).mean())
+# print("Error 3 ", torch.sqrt((_y - __y)**2).mean())
 
 
 # print("y:\n", y)

@@ -1,10 +1,10 @@
 import torch
 import numpy as np
 import torch.nn.functional as F
-from snf.layers.flowlayer import FlowLayer
-from snf.layers.conv1x1 import Conv1x1
-from snf.layers.emerging.masks import get_conv_square_ar_mask
-from snf.layers.emerging.inverse_triang_conv import Inverse
+from layers.flowlayer import FlowLayer
+from layers.conv1x1 import Conv1x1
+from layers.emerging.masks import get_conv_square_ar_mask
+from layers.emerging.inverse_triang_conv import Inverse
 
 
 class SquareAutoRegressiveConv2d(FlowLayer):

@@ -11,6 +11,7 @@ from layers.split import Split
 from layers import Dequantization, Normalization
 from layers.distributions.uniform import UniformDistribution
 # from layers.splitprior import SplitPrior
+from layers.activations import SigmoidFlow
 from fastflow_cifar_multi_gpu import SplitPrior
 from layers.flowsequential import FlowSequential
 from layers.conv1x1 import Conv1x1
@@ -31,7 +32,17 @@ from fastflow_mnist_multi_gpu import Split
 from fastflow_cifar_multi_gpu import FastFlow as FastFlow_CIFAR
 from fastflow_cifar_multi_gpu import FastFlow as FastFlow
 from fastflow_imagenet64_multi_gpu import FastFlow as FastFlow_Imagenet64
+from fastflow_imagenet_multi_gpu import FastFlow as FastFlow_Imagenet32
 from datasets.imagenet import load_data as load_data_imagenet
+from test_cifar import FastFlow as FastFlowSigmoid
+from fastflow_cifar_multi_gpu import Preprocess, GlowStep, FastFlowStep, FastFlowLevel, Split, Gaussianize
+
+from experiments.selfnorm_glow_mnist import create_model as create_model_snf_mnist
+from experiments.selfnorm_glow_cifar import create_model as create_model_snf_cifar
+from experiments.selfnorm_glow_imagenet import create_model as create_model_snf_imagenet
+from experiments.emerging_glow import create_model as create_model_emerging
+from cinc_mnist import create_model as create_model_cinc
+
 
 imagenet64_data_dir = '/scratch/aditya.kallappa/Imagenet'
 
@@ -290,54 +301,51 @@ def reconstruct(model, x, true_inverse=True):
     
     return input
 
-def reconstruct_ms(model, x, true_inverse=True):
-    # input = x
-    # # Forward
-    # zs = []
+def reconstruct_ff(model, x, true_inverse=True):
+    input = x
+    zs = []
+    x, _ = model.module.preprocess(x)
+    # print("After preprocess", x.shape, torch.cuda.current_device())
+    for module in model.module.fastflow_levels:
+        x, z, _ = module(x)
+        zs.append(z)
+    # print("After fastflow_levels", x.shape, torch.cuda.current_device())
+    x, _ = model.module.squeeze(x)
+    # print("Outside Squeeze:", x.shape, torch.cuda.current_device())
+    for module in model.module.fastflow_step:
+        x, _ = module(x)  
+    zs.append(x)
+    
+    # print("Final:", x.mean())
+    z = zs.pop()
+    if true_inverse:
+        #Reverse
 
-    # x, _ = model.preprocess(x)
-    # for module in model.fastflow_levels:
-    #     x, z, _ = module(x)
-    #     zs.append(z)
-    # x, _ = model.squeeze(x)
-    # x, _ = model.fastflow_step(x)
-    # x, _ = model.gaussianize(torch.zeros_like(x), x)
-    # zs.append(x)
+        for module in reversed(model.module.fastflow_step):
+            # print(module)
+            z = module.reverse(z)
+        
+            # print("After fastflow step:", z.mean())
 
+        x = model.module.squeeze.reverse(z)
 
-    # # Reverse
-    # if not true_inverse:
-    #     zs = []
-    #     z_std = 1.0
-    #     zs = model.base_distribution.sample(x.shape[0])[0]#.squeeze()]
-    #     print(zs.shape)
-    #     x = zs
+        for m in reversed(model.module.fastflow_levels):
+            # print(m)
+            # z = z_std * (model.module.base_dist.sample(x.shape).squeeze() if len(zs)==1 else zs[-i-2])  # if no z's are passed, generate new random numbers from the base dist
+            if zs == []:
+                x = m.reverse(x)#, z)
+            else:
+                x = m.reverse(x, zs.pop())
 
-    # x = model.gaussianize.reverse(torch.zeros_like(zs[-1]), zs[-1])
-    # # z = model.gaussianize.reverse(x, zs)
-    # x = model.fastflow_step.reverse(x)
-    # x = model.squeeze.reverse(x)
-    # for i, m in enumerate(reversed(model.fastflow_levels)):
-    #     # z = z_std * (model.base_dist.sample(x.shape).squeeze() if len(zs)==1 else zs[-i-2])  # if no z's are passed, generate new random numbers from the base dist
-    #     if isinstance(m, Split) and true_inverse:
-    #         x = m.reverse(x, zs[-i-2])#, z)
-    #     else:
-    #         x = m.reverse(x)
+        # print("After fastflow level:", x.mean())
 
-    # # postprocess
-    # x = model.preprocess.reverse(x) 
-    # print("input", x.shape)
-    z, _ = model(x)
-    # print(len(z))
-    # print(z[0].shape)
-    if not true_inverse:
-        # z = [model.base_distribution.sample(x.shape[0])[0]]#.squeeze()]
-        # print(z.shape)
-        y = model.reverse(n_samples=x.shape[0])#, zs=[z[-1]])
+        # postprocess
+        x = model.module.preprocess.reverse(x)
+        
     else:
-        y = model.reverse(zs=z)
+        x = model.module.reverse(x.shape[0], [z])
 
-    return y
+    return x
 
 def test_FastFlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=25, plot=True, true_inverse=True):
     if model is None:
@@ -415,11 +423,12 @@ def test_FastFlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=25, 
 
 def test_GlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=1):
     if model is None:
-        model = create_model_glow(num_blocks=2,
-                            block_size=16, 
+        model = create_model_glow(num_blocks=3,
+                            block_size=32, 
                             sym_recon_grad=False,
                             actnorm=True,
                             split_prior=True,
+                            current_size=(3, 32, 32),
                             recon_loss_weight=1.0).to('cuda')
     # print(model)
     if checkpoint_path:
@@ -472,11 +481,13 @@ def test_GlowMNIST(model=None, checkpoint_path=None, x=None, batch_size=1):
 def test_FastFlow(model=None, checkpoint_path=None, x=None, batch_size=25, plot=True, true_inverse=True):
     if model is None:
         model = FastFlow(n_blocks=3,
-                            block_size=48,
+                            block_size=32,
                             actnorm=True,
                             image_size=(3, 32, 32)).to('cuda')
     check = 'untrained'
+    # model = torch.nn.DataParallel(model)
     if checkpoint_path:
+        model = torch.nn.DataParallel(model)
         print("Loading from ", checkpoint_path)
 
         checkpoint = torch.load(checkpoint_path)
@@ -498,22 +509,23 @@ def test_FastFlow(model=None, checkpoint_path=None, x=None, batch_size=25, plot=
     model.eval()
     with torch.no_grad():
         # x_hat = reconstruct_ms(model, x, true_inverse)
-        x_hat = model.reconstruct(x, true_inverse=true_inverse)
+        # x_hat = model.reconstruct(x, true_inverse=true_inverse)
+        x_hat = reconstruct_ff(model, x, true_inverse)
 
     if plot:
         torchvision.utils.save_image(
-            x_hat / 256., f'{true_inverse}_cifar_reconstructFF_{check}.png', nrow=10,
+            x_hat / 256., f'test_images/{true_inverse}_cifar_reconstructFF_{check}.png', nrow=10,
             padding=2, normalize=False)
 
         torchvision.utils.save_image(
-            x / 256., f'{true_inverse}_cifar_originalFF_{check}.png', nrow=10,
+            x / 256., f'test_images/{true_inverse}_cifar_originalFF_{check}.png', nrow=10,
             padding=2, normalize=False)
 
     print("Error:", torch.mean((x - x_hat) ** 2).item())
 
 
 
-from fastflow_cifar_multi_gpu import Preprocess, GlowStep, FastFlowStep, FastFlowLevel, Split, Gaussianize
+
 
 def test_Preprocess(x, is_input=True):
     B, C, H, W = x.shape
@@ -697,7 +709,7 @@ def test_inverse_FastFlowUnit(in_channels=4, out_channels=None, kernel_size=(3, 
 
 
 
-def test_inverse_FastFlow_MNIST(n_blocks=2, block_size= 16, batch_size=100, image_size=(1, 28, 28)):
+def _test_inverse_FastFlow_MNIST(n_blocks=2, block_size= 16, batch_size=100, image_size=(1, 28, 28)):
 
     fastflow = FastFlow_MNIST(n_blocks=n_blocks,
                         block_size=block_size,
@@ -719,14 +731,21 @@ def test_inverse_FastFlow_MNIST(n_blocks=2, block_size= 16, batch_size=100, imag
         break
     B, C, H, W = input.shape
     # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
     with torch.no_grad():
-        t = time.process_time()
-        conv_output, _ = fastflow(input)
-        forward_time = time.process_time() - t
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = fastflow(input)
+            forward_time = time.process_time() - t
 
-        t = time.process_time()
-        reverse_input, _ = fastflow.sample(n_samples=batch_size)
-        reverse_time = time.process_time() - t
+            t = time.process_time()
+            reverse_input, _ = fastflow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
 
     # t = time.process_time()
     # reverse_input_level2 = fastflow.reverse_level2(conv_output)
@@ -739,8 +758,12 @@ def test_inverse_FastFlow_MNIST(n_blocks=2, block_size= 16, batch_size=100, imag
     # print(f"MSE Level 2 : {error_level2}")
     print("Total Params: ", total_params)
     print("Total Params(Learnable): ", total_params_learnable)
-    print(f"Forward Time : {forward_time}s")
-    print(f"Level 2 Reverse Time : {reverse_time}s")
+    # for param in fastflow.state_dict():
+    #     print(param, torch.numel(fastflow.state_dict()[param]))
+    # for p in fastflow.parameters():
+    #     print(p.shape)
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
     # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
 
 def test_inverse_FastFlow_CIFAR(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
@@ -767,14 +790,21 @@ def test_inverse_FastFlow_CIFAR(n_blocks=3, block_size=32, batch_size=100, image
     print("Input", x.shape)
     B, C, H, W = input.shape
     # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
     with torch.no_grad():
-        t = time.process_time()
-        conv_output, _ = fastflow(input)
-        forward_time = time.process_time() - t
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = fastflow(input)
+            forward_time = time.process_time() - t
 
-        t = time.process_time()
-        reverse_input, _ = fastflow.sample(n_samples=batch_size)
-        reverse_time = time.process_time() - t
+            t = time.process_time()
+            reverse_input, _ = fastflow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
 
     # t = time.process_time()
     # reverse_input_level2 = fastflow.reverse_level2(conv_output)
@@ -787,9 +817,131 @@ def test_inverse_FastFlow_CIFAR(n_blocks=3, block_size=32, batch_size=100, image
     # print(f"MSE Level 2 : {error_level2}")
     print("Total Params: ", total_params)
     print("Total Params(Learnable): ", total_params_learnable)
-    print(f"Forward Time : {forward_time}s")
-    print(f"Level 1 Reverse Time : {reverse_time}s")
+    # for param in fastflow.state_dict():
+    #     print(param, torch.numel(fastflow.state_dict()[param]))
+    # for p in fastflow.parameters():
+    #     print(p.shape)
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
     # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
+def test_inverse_FastFlow_MNIST(n_blocks=2, block_size= 16, batch_size=100, image_size=(1, 28, 28)):
+
+    fastflow = FastFlow_MNIST(n_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        image_size=image_size).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in fastflow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in fastflow.parameters())
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data(data_aug=False, batch_size=batch_size)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = fastflow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = fastflow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    # t = time.process_time()
+    # reverse_input_level2 = fastflow.reverse_level2(conv_output)
+    # reverse_time_level2 = time.process_time() - t
+    
+    # error_level1 = torch.mean((input - reverse_input) ** 2)
+    # error_level2 = torch.mean((input - reverse_input_level2) ** 2)
+
+    # print(f"MSE Level 1 : {error_level1}")
+    # print(f"MSE Level 2 : {error_level2}")
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in fastflow.state_dict():
+    #     print(param, torch.numel(fastflow.state_dict()[param]))
+    # for p in fastflow.parameters():
+    #     print(p.shape)
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+    # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
+def test_inverse_FastFlow_CIFAR2(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
+
+    fastflow = create_model_fastflow(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True,
+                        current_size=image_size).to('cuda')
+    fastflow.eval()
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in fastflow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in fastflow.parameters())
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=batch_size)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    print("Input", x.shape)
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = fastflow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = fastflow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    # t = time.process_time()
+    # reverse_input_level2 = fastflow.reverse_level2(conv_output)
+    # reverse_time_level2 = time.process_time() - t
+    
+    # error_level1 = torch.mean((input - reverse_input) ** 2)
+    # error_level2 = torch.mean((input - reverse_input_level2) ** 2)
+
+    # print(f"MSE Level 1 : {error_level1}")
+    # print(f"MSE Level 2 : {error_level2}")
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in fastflow.state_dict():
+    #     print(param, torch.numel(fastflow.state_dict()[param]))
+    # for p in fastflow.parameters():
+    #     print(p.shape)
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+    # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
 
 def test_inverse_FastFlow_Imagenet64(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
 
@@ -806,8 +958,8 @@ def test_inverse_FastFlow_Imagenet64(n_blocks=3, block_size=32, batch_size=100, 
     total_params = sum(p.numel() for p in fastflow.parameters())
     # print("Input : \n", np.array(input))
     # print("Kernel : \n", np.array(kernel))
-    input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
-    input = torch.tensor(input, dtype=torch.float).cuda()
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
     # train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, batch_size=batch_size)
     train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, 
                                                       batch_size=batch_size,
@@ -819,14 +971,22 @@ def test_inverse_FastFlow_Imagenet64(n_blocks=3, block_size=32, batch_size=100, 
     print("Input", input.shape)
     B, C, H, W = input.shape
     # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
     with torch.no_grad():
-        t = time.process_time()
-        conv_output, _ = fastflow(input)
-        forward_time = time.process_time() - t
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = fastflow(input)
+            forward_time = time.process_time() - t
 
-        t = time.process_time()
-        reverse_input, _ = fastflow.sample(n_samples=batch_size)
-        reverse_time = time.process_time() - t
+            t = time.process_time()
+            reverse_input, _ = fastflow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
 
     # t = time.process_time()
     # reverse_input_level2 = fastflow.reverse_level2(conv_output)
@@ -839,14 +999,436 @@ def test_inverse_FastFlow_Imagenet64(n_blocks=3, block_size=32, batch_size=100, 
     # print(f"MSE Level 2 : {error_level2}")
     print("Total Params: ", total_params)
     print("Total Params(Learnable): ", total_params_learnable)
-    print(f"Forward Time : {forward_time}s")
-    print(f"Level 2 Reverse Time : {reverse_time}s")
+    print(f"Forward Time : {total_time_forward / n_loops}s")
+    print(f"Level 2 Reverse Time : {total_time_reverse / n_loops}s")
     # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
+
+def test_inverse_FastFlow_Imagenet32(n_blocks=3, block_size=48, batch_size=100, image_size=(3, 32, 32)):
+
+    fastflow = FastFlow_Imagenet32(n_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        image_size=image_size).to('cuda')
+    fastflow.eval()
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in fastflow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in fastflow.parameters())
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    # train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, batch_size=batch_size)
+    train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, 
+                                                      batch_size=batch_size,
+                                                      resolution=32,
+                                                      data_dir=imagenet64_data_dir)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    print("Input", input.shape)
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = fastflow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = fastflow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+
+    # t = time.process_time()
+    # reverse_input_level2 = fastflow.reverse_level2(conv_output)
+    # reverse_time_level2 = time.process_time() - t
+    
+    # error_level1 = torch.mean((input - reverse_input) ** 2)
+    # error_level2 = torch.mean((input - reverse_input_level2) ** 2)
+
+    # print(f"MSE Level 1 : {error_level1}")
+    # print(f"MSE Level 2 : {error_level2}")
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    print(f"Forward Time : {total_time_forward / n_loops}s")
+    print(f"Level 2 Reverse Time : {total_time_reverse / n_loops}s")
+    # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
 
 
 def test_inverse_Glow_MNIST(n_blocks=2, block_size= 16, batch_size=100, image_size=(1, 28, 28)):
 
     glow = create_model_glow(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        current_size=image_size,
+                        split_prior=True).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in glow.parameters())
+    train_loader, val_loader, test_loader = load_data(data_aug=False, batch_size=batch_size)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = glow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = glow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+    # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
+
+
+def test_inverse_Glow_CIFAR(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
+
+    glow = create_model_glow(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        current_size=image_size,
+                        split_prior=True).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in glow.parameters())
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in glow.state_dict(): 
+    #     print(param, torch.numel(glow.state_dict()[param]))
+    # for p in glow.parameters():
+    #     print(p.shape)
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=batch_size)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = glow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = glow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+
+
+def test_inverse_Glow_Imagenet32(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
+
+    glow = create_model_glow(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        current_size=image_size,
+                        split_prior=True).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in glow.parameters())
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in glow.state_dict(): 
+    #     print(param, torch.numel(glow.state_dict()[param]))
+    # for p in glow.parameters():
+    #     print(p.shape)
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, 
+                                                      batch_size=batch_size,
+                                                      resolution=32,
+                                                      data_dir=imagenet64_data_dir)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = glow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = glow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+
+
+def test_inverse_Glow_Imagenet64(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 64, 64)):
+
+    glow = create_model_glow(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        current_size=image_size,
+                        split_prior=True).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in glow.parameters())
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in glow.state_dict(): 
+    #     print(param, torch.numel(glow.state_dict()[param]))
+    # for p in glow.parameters():
+    #     print(p.shape)
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, 
+                                                      batch_size=batch_size,
+                                                      resolution=64,
+                                                      data_dir=imagenet64_data_dir)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = glow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = glow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+
+
+
+def test_inverse_FastFlowSigmoid_CIFAR(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
+
+    fastflow = FastFlowSigmoid(n_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        image_size=image_size).to('cuda')
+    fastflow.eval()
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in fastflow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in fastflow.parameters())
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=batch_size)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    print("Input", x.shape)
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = fastflow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = fastflow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    # t = time.process_time()
+    # reverse_input_level2 = fastflow.reverse_level2(conv_output)
+    # reverse_time_level2 = time.process_time() - t
+    
+    # error_level1 = torch.mean((input - reverse_input) ** 2)
+    # error_level2 = torch.mean((input - reverse_input_level2) ** 2)
+
+    # print(f"MSE Level 1 : {error_level1}")
+    # print(f"MSE Level 2 : {error_level2}")
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in fastflow.state_dict():
+    #     print(param, torch.numel(fastflow.state_dict()[param]))
+    # for p in fastflow.parameters():
+    #     print(p.shape)
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+    # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
+
+def reconstruct_sigmoid(model, x, true_inverse=True):
+    input = x
+    zs = []
+    # z_inv_index = -1
+    # # print("Input:", input.shape)
+    # # Forward
+    # zs, _ = model(x)
+    # # print(model)
+    # if true_inverse:
+    #     x = model.reverse(zs=zs)
+    # else:
+    #     x = model.sample(n_samples=x.shape[0])
+    
+    # print(x.shape)
+
+    x, _ = model.preprocess(x)
+    # print("After preprocess", x.shape, torch.cuda.current_device())
+    for module in model.fastflow_levels:
+        x, z, _ = module(x)
+        zs.append(z)
+    # print("After fastflow_levels", x.shape, torch.cuda.current_device())
+    x, _ = model.squeeze(x)
+    # print("Outside Squeeze:", x.shape, torch.cuda.current_device())
+    for module in model.fastflow_step:
+        x, _ = module(x)  
+    zs.append(x)
+    
+    print("Final:", x.mean())
+    #Reverse
+    z = zs.pop()
+    for module in reversed(model.fastflow_step):
+        print(module)
+        z = module.reverse(z)
+    
+        print("After fastflow step:", z.mean())
+
+    x = model.squeeze.reverse(z)
+
+    for m in reversed(model.fastflow_levels):
+        # print(m)
+        # z = z_std * (model.base_dist.sample(x.shape).squeeze() if len(zs)==1 else zs[-i-2])  # if no z's are passed, generate new random numbers from the base dist
+        if zs == []:
+            x = m.reverse(x)#, z)
+        else:
+            x = m.reverse(x, zs.pop())
+
+    print("After fastflow level:", x.mean())
+
+    # postprocess
+    x = model.preprocess.reverse(x)
+
+    
+    return x
+
+def test_FastFlowSigmoid(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32), plot=True, true_inverse=True):
+    
+    fastflow = FastFlowSigmoid(n_blocks=n_blocks,
+                        block_size=block_size, 
+                        actnorm=True,
+                        image_size=image_size).to('cuda')
+    check = 'untrained'
+    train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=batch_size)
+    i = 0
+    for x, label in test_loader:
+        i += 1
+        x = x.cuda()
+        if i == 100:
+            break
+       
+    fastflow.eval()
+    with torch.no_grad():
+        reconstructed_image = reconstruct_sigmoid(fastflow, x, true_inverse)
+    if plot:
+        torchvision.utils.save_image(
+            reconstructed_image / 256., f'test_images/{true_inverse}_Sigmoid_reconstruct_{check}.png', nrow=int(batch_size ** 0.5),
+            padding=2, normalize=False)
+
+        torchvision.utils.save_image(
+            x / 256., f'test_images/{true_inverse}_Sigmoid_original_{check}.png', nrow=int(batch_size ** 0.5),
+            padding=2, normalize=False)
+
+    print("Error:", torch.mean((x - reconstructed_image) ** 2).item())
+
+def test_SigmoidFlow(x=None):
+    layer = SigmoidFlow()
+    forward, _ = layer(x)
+    reverse_x, _ = layer.reverse(forward)
+    print("Error:", torch.mean((x - reverse_x) ** 2).item())
+
+
+
+def test_inverse_SNF_MNIST(n_blocks=2, block_size=16, batch_size=100, image_size=(1, 28, 28)):
+
+    glow = create_model_snf_mnist(num_blocks=n_blocks,
                         block_size=block_size,
                         actnorm=True,
                         split_prior=True).to('cuda')
@@ -856,6 +1438,280 @@ def test_inverse_Glow_MNIST(n_blocks=2, block_size= 16, batch_size=100, image_si
 
     total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in glow.parameters())
+    train_loader, val_loader, test_loader = load_data(data_aug=False, batch_size=batch_size)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = glow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = glow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+    # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
+
+
+def test_inverse_SNF_CIFAR(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
+
+    glow = create_model_snf_cifar(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in glow.parameters())
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=batch_size)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = glow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = glow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+
+
+def test_inverse_SNF_Imagenet32(n_blocks=3, block_size=48, batch_size=100, image_size=(3, 32, 32)):
+
+    glow = create_model_snf_imagenet(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in glow.parameters())
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in glow.state_dict(): 
+    #     print(param, torch.numel(glow.state_dict()[param]))
+    # for p in glow.parameters():
+    #     print(p.shape)
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, 
+                                                      batch_size=batch_size,
+                                                      resolution=32,
+                                                      data_dir=imagenet64_data_dir)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = glow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = glow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+
+def test_inverse_SNF_Imagenet64(n_blocks=4, block_size=48, batch_size=100, image_size=(3, 64, 64)):
+
+    glow = create_model_snf_imagenet(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in glow.parameters())
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in glow.state_dict(): 
+    #     print(param, torch.numel(glow.state_dict()[param]))
+    # for p in glow.parameters():
+    #     print(p.shape)
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, 
+                                                      batch_size=batch_size,
+                                                      resolution=64,
+                                                      data_dir=imagenet64_data_dir)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = glow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = glow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+
+def test_timings(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
+
+    # fastflow = FastFlow_CIFAR(n_blocks=n_blocks,
+    #                     block_size=block_size,
+    #                     actnorm=True,
+    #                     image_size=image_size).to('cuda')
+    fastflow = create_model_fastflow(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True,
+                        current_size=image_size).to('cuda')
+    fastflow.eval()
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in fastflow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in fastflow.parameters())
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    # train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=batch_size)
+    # for x, label in test_loader:
+    #     input = x.cuda()
+    #     break
+
+    with torch.no_grad():
+        input = torch.rand((1, *image_size)).to('cuda')
+    print("Input", batch_size, input.shape[1:])
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    conv_output, _ = fastflow(input)
+    torch.cuda.empty_cache()
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            # t = time.process_time()
+            # conv_output, _ = fastflow(input)
+            # forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = fastflow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                # total_time_forward += forward_time
+                total_time_reverse += reverse_time
+            
+    # t = time.process_time()
+    # reverse_input_level2 = fastflow.reverse_level2(conv_output)
+    # reverse_time_level2 = time.process_time() - t
+    
+    # error_level1 = torch.mean((input - reverse_input) ** 2)
+    # error_level2 = torch.mean((input - reverse_input_level2) ** 2)
+
+    # print(f"MSE Level 1 : {error_level1}")
+    # print(f"MSE Level 2 : {error_level2}")
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in fastflow.state_dict():
+    #     print(param, torch.numel(fastflow.state_dict()[param]))
+    # for p in fastflow.parameters():
+    #     print(p.shape)
+    # print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}")
+    # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
+    return total_time_reverse / n_loops
+
+def test_inverse_Emerging_MNIST(n_blocks=2, block_size=16, batch_size=100, image_size=(1, 28, 28)):
+
+    glow = create_model_emerging(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True,
+                        image_size=image_size).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in glow.parameters())
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in glow.state_dict(): 
+    #     print(param, torch.numel(glow.state_dict()[param]))
+    # for p in glow.parameters():
+    #     print(p.shape)
     # print("Input : \n", np.array(input))
     # print("Kernel : \n", np.array(kernel))
     # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
@@ -866,16 +1722,295 @@ def test_inverse_Glow_MNIST(n_blocks=2, block_size= 16, batch_size=100, image_si
         break
     B, C, H, W = input.shape
     # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
-    t = time.process_time()
-    conv_output, _ = glow(input)
-    forward_time = time.process_time() - t
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = glow(input)
+            forward_time = time.process_time() - t
 
-    t = time.process_time()
-    reverse_input, _ = glow.sample(n_samples=batch_size)
-    reverse_time = time.process_time() - t
+            t = time.process_time()
+            reverse_input, _ = glow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+
+def test_inverse_Emerging_CIFAR(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
+
+    glow = create_model_emerging(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True,
+                        image_size=image_size).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in glow.parameters())
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in glow.state_dict(): 
+    #     print(param, torch.numel(glow.state_dict()[param]))
+    # for p in glow.parameters():
+    #     print(p.shape)
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=batch_size)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = glow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = glow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+
+def test_inverse_Emerging_Imagenet32(n_blocks=3, block_size=48, batch_size=100, image_size=(3, 32, 32)):
+
+    glow = create_model_emerging(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True,
+                        image_size=image_size).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in glow.parameters())
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in glow.state_dict(): 
+    #     print(param, torch.numel(glow.state_dict()[param]))
+    # for p in glow.parameters():
+    #     print(p.shape)
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, 
+                                                      batch_size=batch_size,
+                                                      resolution=32,
+                                                      data_dir=imagenet64_data_dir)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = glow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = glow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+
+
+def test_inverse_Emerging_Imagenet64(n_blocks=4, block_size=48, batch_size=100, image_size=(3, 64, 64)):
+
+    glow = create_model_emerging(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True,
+                        image_size=image_size).to('cuda')
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in glow.parameters())
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in glow.state_dict(): 
+    #     print(param, torch.numel(glow.state_dict()[param]))
+    # for p in glow.parameters():
+    #     print(p.shape)
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, 
+                                                      batch_size=batch_size,
+                                                      resolution=64,
+                                                      data_dir=imagenet64_data_dir)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = glow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = glow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
+
+def test_timings_Emerging(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
+
+    glow = create_model_emerging(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True,
+                        image_size=image_size).to('cuda')
+    glow.eval()
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in glow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in glow.parameters())
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in glow.state_dict(): 
+    #     print(param, torch.numel(glow.state_dict()[param]))
+    # for p in glow.parameters():
+    #     print(p.shape)
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    # train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, 
+    #                                                   batch_size=batch_size,
+    #                                                   resolution=64,
+    #                                                   data_dir=imagenet64_data_dir)
+    # for x, label in test_loader:
+        # input = x.cuda()
+        # break
+
+    input = torch.rand((1, *image_size)).to('cuda')
+    print("Input", input.shape)
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    conv_output, _ = glow(input)
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            # t = time.process_time()
+            # conv_output, _ = glow(input)
+            # forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = glow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                # total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    
+    # print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}")
+    return total_time_reverse / n_loops
+
+def test_inverse_CINCFlow_CIFAR(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
+
+    fastflow = create_model_cinc(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True,
+                        image_size=image_size).to('cuda')
+    fastflow.eval()
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in fastflow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in fastflow.parameters())
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=batch_size)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    print("Input", x.shape)
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = fastflow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = fastflow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
 
     # t = time.process_time()
-    # reverse_input_level2 = glow.reverse_level2(conv_output)
+    # reverse_input_level2 = fastflow.reverse_level2(conv_output)
     # reverse_time_level2 = time.process_time() - t
     
     # error_level1 = torch.mean((input - reverse_input) ** 2)
@@ -885,6 +2020,204 @@ def test_inverse_Glow_MNIST(n_blocks=2, block_size= 16, batch_size=100, image_si
     # print(f"MSE Level 2 : {error_level2}")
     print("Total Params: ", total_params)
     print("Total Params(Learnable): ", total_params_learnable)
-    print(f"Forward Time : {forward_time}s")
-    print(f"Level 2 Reverse Time : {reverse_time}s")
+    # for param in fastflow.state_dict():
+    #     print(param, torch.numel(fastflow.state_dict()[param]))
+    # for p in fastflow.parameters():
+    #     print(p.shape)
+    print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}s")
     # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+
+def test_inverse_CINCFlow_Imagenet32(n_blocks=3, block_size=48, batch_size=100, image_size=(3, 32, 32)):
+
+    fastflow = create_model_cinc(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True,
+                        image_size=image_size).to('cuda')
+    fastflow.eval()
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in fastflow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in fastflow.parameters())
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, 
+                                                      batch_size=batch_size,
+                                                      resolution=32,
+                                                      data_dir=imagenet64_data_dir)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    print("Input", x.shape)
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = fastflow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = fastflow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    # t = time.process_time()
+    # reverse_input_level2 = fastflow.reverse_level2(conv_output)
+    # reverse_time_level2 = time.process_time() - t
+    
+    # error_level1 = torch.mean((input - reverse_input) ** 2)
+    # error_level2 = torch.mean((input - reverse_input_level2) ** 2)
+
+    # print(f"MSE Level 1 : {error_level1}")
+    # print(f"MSE Level 2 : {error_level2}")
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in fastflow.state_dict():
+    #     print(param, torch.numel(fastflow.state_dict()[param]))
+    # for p in fastflow.parameters():
+    #     print(p.shape)
+    print(f"Average Forward Time : {total_time_forward / n_loops}")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}")
+
+
+def test_inverse_CINCFlow_Imagenet64(n_blocks=4, block_size=48, batch_size=100, image_size=(3, 64, 64)):
+
+    fastflow = create_model_cinc(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True,
+                        image_size=image_size).to('cuda')
+    fastflow.eval()
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in fastflow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in fastflow.parameters())
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    train_loader, val_loader, test_loader = load_data_imagenet(data_aug=True, 
+                                                      batch_size=batch_size,
+                                                      resolution=64,
+                                                      data_dir=imagenet64_data_dir)
+    for x, label in test_loader:
+        input = x.cuda()
+        break
+    print("Input", x.shape)
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            t = time.process_time()
+            conv_output, _ = fastflow(input)
+            forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = fastflow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                total_time_forward += forward_time
+                total_time_reverse += reverse_time
+
+    # t = time.process_time()
+    # reverse_input_level2 = fastflow.reverse_level2(conv_output)
+    # reverse_time_level2 = time.process_time() - t
+    
+    # error_level1 = torch.mean((input - reverse_input) ** 2)
+    # error_level2 = torch.mean((input - reverse_input_level2) ** 2)
+
+    # print(f"MSE Level 1 : {error_level1}")
+    # print(f"MSE Level 2 : {error_level2}")
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in fastflow.state_dict():
+    #     print(param, torch.numel(fastflow.state_dict()[param]))
+    # for p in fastflow.parameters():
+    #     print(p.shape)
+    print(f"Average Forward Time : {total_time_forward / n_loops}")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}")
+
+def test_timings_CINC(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32)):
+
+    # fastflow = FastFlow_CIFAR(n_blocks=n_blocks,
+    #                     block_size=block_size,
+    #                     actnorm=True,
+    #                     image_size=image_size).to('cuda')
+    fastflow = create_model_cinc(num_blocks=n_blocks,
+                        block_size=block_size,
+                        actnorm=True,
+                        split_prior=True,
+                        image_size=image_size).to('cuda')
+    fastflow.eval()
+    print("-----------------------------------------------------")
+    in_channels = image_size[0]
+    out_channels = in_channels
+
+    total_params_learnable = sum(p.numel() for p in fastflow.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in fastflow.parameters())
+    # print("Input : \n", np.array(input))
+    # print("Kernel : \n", np.array(kernel))
+    # input = torch.randn((batch_size, in_channels, image_size[1], image_size[2]))
+    # input = torch.tensor(input, dtype=torch.float).cuda()
+    # train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=batch_size)
+    # for x, label in test_loader:
+    #     input = x.cuda()
+    #     break
+
+    input = torch.rand((1, *image_size)).to('cuda')
+    print("Input", input.shape)
+    B, C, H, W = input.shape
+    # output = torch.zeros((B, C, H, W), dtype=torch.float).cuda()
+    total_time_forward = 0
+    total_time_reverse = 0
+    n_loops = 10
+    conv_output, _ = fastflow(input)
+    torch.cuda.empty_cache()
+    with torch.no_grad():
+        for i in range(n_loops + 1):    
+            # t = time.process_time()
+            # conv_output, _ = fastflow(input)
+            # forward_time = time.process_time() - t
+
+            t = time.process_time()
+            reverse_input, _ = fastflow.sample(n_samples=batch_size)
+            reverse_time = time.process_time() - t
+            if i != 0:
+                # total_time_forward += forward_time
+                total_time_reverse += reverse_time
+            
+    # t = time.process_time()
+    # reverse_input_level2 = fastflow.reverse_level2(conv_output)
+    # reverse_time_level2 = time.process_time() - t
+    
+    # error_level1 = torch.mean((input - reverse_input) ** 2)
+    # error_level2 = torch.mean((input - reverse_input_level2) ** 2)
+
+    # print(f"MSE Level 1 : {error_level1}")
+    # print(f"MSE Level 2 : {error_level2}")
+    print("Total Params: ", total_params)
+    print("Total Params(Learnable): ", total_params_learnable)
+    # for param in fastflow.state_dict():
+    #     print(param, torch.numel(fastflow.state_dict()[param]))
+    # for p in fastflow.parameters():
+    #     print(p.shape)
+    # print(f"Average Forward Time : {total_time_forward / n_loops}s")
+    print(f"Average Level 1 Reverse Time : {total_time_reverse / n_loops}")
+    # print(f"Level 2 Reverse Time : {reverse_time_level2}s")
+    return total_time_reverse / n_loops

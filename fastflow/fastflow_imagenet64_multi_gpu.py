@@ -50,13 +50,13 @@ class SplitPrior(FlowLayer):
 
     def forward(self, input, context=None):
         x, ldj = self.transform(input, context)
-
+        # print("Inside Split, after transform:", ldj)
         x1 = x[:, :self.n_channels // 2, :, :]
         x2 = x[:, self.n_channels // 2:, :, :]
 
         log_pz2 = self.base.log_prob(x2)
         log_px2 = log_pz2 + ldj
-
+        # print("Inside Split, log_prob", log_pz2)
         return x1, x2, log_px2
 
     def reverse(self, input, x2=None, context=None):
@@ -262,9 +262,9 @@ class FastFlowLevel(nn.Module):
         super().__init__()
         squeeze = Squeeze()
         size = (size[0] * 4, size[1] // 2, size[2] // 2)
-        # split = SplitPrior(size, NegativeGaussianLoss)
-        # split = Split(size, NegativeGaussianLoss)
         split = SplitPrior(size, NegativeGaussianLoss)
+        # split = Split(size, NegativeGaussianLoss)
+        # split = SplitPrior(size, NegativeGaussianLoss)
         self.fastflow_level = nn.ModuleList([
             squeeze,
             *[FastFlowStep(size, actnorm) for _ in range(block_size)],
@@ -278,6 +278,7 @@ class FastFlowLevel(nn.Module):
         # logdet += layer_logdet
         for layer in self.fastflow_level:
             if not isinstance(layer, SplitPrior):
+            # if not isinstance(layer, Split):
                 x, layer_logdet = layer(x)
             else:
                 x, z, layer_logdet = layer(x)
@@ -310,7 +311,8 @@ class FastFlow(nn.Module):
         self.preprocess = Preprocess(size=size)
         self.fastflow_levels = nn.ModuleList([FastFlowLevel((C_in * (2**i), H//(2**i), W//(2**i)), block_size, actnorm) for i in range(n_levels)])
         self.squeeze = Squeeze()
-        self.fastflow_step = nn.Sequential(*[FastFlowStep(self.output_size, actnorm) for _ in range(block_size)])
+        self.fastflow_step = nn.ModuleList([FastFlowStep(self.output_size, actnorm) for _ in range(1)])
+        # self.fastflow_step = FastFlowStep(self.output_size, actnorm)
         self.gaussianize = Gaussianize(C_out)
         self.base_distribution = NegativeGaussianLoss(size=self.output_size)
 
@@ -319,26 +321,31 @@ class FastFlow(nn.Module):
         zs = []
         x, layer_logdet = self.preprocess(x)
         logdet += layer_logdet
-        # print("After preprocess", x.shape, torch.cuda.current_device())
-        for module in self.fastflow_levels:
+        # print("After preprocess", logdet)
+        # print("Before levels X:", x[0])
+        for i, module in enumerate(self.fastflow_levels):
             x, z, layer_logdet = module(x)
             logdet += layer_logdet
             zs.append(z)
-        # print("After fastflow_levels", x.shape, torch.cuda.current_device())
+        #     print(f"After level-{i} X:", x[0])
+        # print("After fastflow_levels", logdet)
         x, layer_logdet = self.squeeze(x)
         logdet += layer_logdet
         # print("Outside Squeeze:", x.shape, torch.cuda.current_device())
+        # print("Before fastlow step X:", x[0])
         # x, layer_logdet = self.fastflow_step(x)
+        # logdet += layer_logdet
         for module in self.fastflow_step:
             x, layer_logdet = module(x)
             logdet += layer_logdet
 
-        # print("After Outside step", x.shape, torch.cuda.current_device())
+        # print("After Outside step", logdet)
         # x, layer_logdet = self.gaussianize(torch.zeros_like(x), x)
         # logdet += layer_logdet     
-        logdet += self.base_distribution.log_prob(x)     
+        logdet += self.base_distribution.log_prob(x)  
         zs.append(x)
-        # print("Output:", x.shape, torch.cuda.current_device())
+        # print('After fastflow step, X:', x[0])
+        # print("Output:", logdet)
         return zs, logdet#x, logdet
     
     def reverse(self, n_samples=1, zs=None, z_std=1.0):
@@ -399,7 +406,7 @@ if __name__ == '__main__':
     date_time = now.strftime("%d:%m:%Y %H:%M:%S")
     lr = 1e-3
     optimizer_ = 'Adam'
-    scheduler_ = 'Exponential_0.99'
+    scheduler_ = 'Exponential_0.99997'
 
     data_dir = '/scratch/aditya.kallappa/Imagenet'
 
@@ -409,14 +416,14 @@ if __name__ == '__main__':
         multi_gpu = True
     run_name = f'{optimizer_}_{scheduler_}_{lr}_{date_time}'
     config = {
-        'name': f'3L-32K FastFlow_Imagenet64_{run_name}',
+        'name': f'4L-48K FastFlow_Imagenet64_{run_name}',
         'eval_epochs': 1,
         'sample_epochs': 1,
         'log_interval': 100,
         'lr': lr,
         'num_blocks': 4,
-        'block_size': 50,
-        'batch_size': 50,
+        'block_size': 48,
+        'batch_size': 10,
         'modified_grad': False,
         'add_recon_grad': False,
         'sym_recon_grad': False,
@@ -426,16 +433,18 @@ if __name__ == '__main__':
         'recon_loss_weight': 0.0,
         'sample_true_inv': False,
         'plot_recon': True,
-        'grad_clip_norm': None,
+        'grad_clip_norm': 1.0,
         'dataset': 'imagenet64',
         'run_name': f'{run_name}',
-        'wandb_project': 'fast-flow-imagenet64',
+        'wandb_project': 'fast-flow-imagenet64-GC',
         'Optimizer': optimizer_,
         'Scheduler': scheduler_,
         'multi_gpu': multi_gpu,
         'loss_bpd': False,
         'resolution':64
     }
+
+    # config['batch_size'] *= torch.cuda.device_count()
 
     train_loader, val_loader, test_loader = load_data(data_aug=True, 
                                                       batch_size=config['batch_size'],
@@ -451,10 +460,10 @@ if __name__ == '__main__':
         model = nn.DataParallel(model)
     
     model = model.to('cuda')
-    
+    print(model)
     optimizer = optim.Adam(model.parameters(), lr=config['lr'])#, weight_decay=0.0001)
     # scheduler = StepLR(optimizer, step_size=25, gamma=0.1)
-    scheduler = ExponentialLR(optimizer, gamma=0.99, last_epoch=-1)
+    scheduler = ExponentialLR(optimizer, gamma=0.99997, last_epoch=-1)
     # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=3, threshold=10) 
     experiment = Experiment(model, train_loader, val_loader, test_loader,
                             optimizer, scheduler, **config)

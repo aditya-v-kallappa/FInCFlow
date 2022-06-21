@@ -15,9 +15,7 @@ from layers.transforms import LogitTransform
 from layers.coupling import Coupling
 from train.losses import NegativeGaussianLoss
 from train.experiment import Experiment
-from datasets.mnist import load_data as load_data_mnist
-from datasets.cifar10 import load_data as load_data_cifar
-from datasets.imagenet import load_data as load_data_imagenet32
+from datasets.imagenet import load_data
 from layers.flowlayer import FlowLayer
 from train.experiment import Experiment
 from layers.conv import PaddedConv2d#, Conv1x1
@@ -39,7 +37,6 @@ def clear_grad(module):
         # print(module.conv.weight.data)
         # print(module.conv.weight.grad)
 
-
 class SplitPrior(FlowLayer):
     def __init__(self, size, distribution, width=512):
         super().__init__()
@@ -53,13 +50,13 @@ class SplitPrior(FlowLayer):
 
     def forward(self, input, context=None):
         x, ldj = self.transform(input, context)
-
+        # print("Inside Split, after transform:", ldj)
         x1 = x[:, :self.n_channels // 2, :, :]
         x2 = x[:, self.n_channels // 2:, :, :]
 
         log_pz2 = self.base.log_prob(x2)
         log_px2 = log_pz2 + ldj
-
+        # print("Inside Split, log_prob", log_pz2)
         return x1, x2, log_px2
 
     def reverse(self, input, x2=None, context=None):
@@ -75,6 +72,7 @@ class SplitPrior(FlowLayer):
     def logdet(self, input, context=None):
         x1, ldj = self.forward(input, context)
         return ldj
+
 
 
 class Split(FlowLayer):
@@ -266,6 +264,7 @@ class FastFlowLevel(nn.Module):
         size = (size[0] * 4, size[1] // 2, size[2] // 2)
         split = SplitPrior(size, NegativeGaussianLoss)
         # split = Split(size, NegativeGaussianLoss)
+        # split = SplitPrior(size, NegativeGaussianLoss)
         self.fastflow_level = nn.ModuleList([
             squeeze,
             *[FastFlowStep(size, actnorm) for _ in range(block_size)],
@@ -279,6 +278,7 @@ class FastFlowLevel(nn.Module):
         # logdet += layer_logdet
         for layer in self.fastflow_level:
             if not isinstance(layer, SplitPrior):
+            # if not isinstance(layer, Split):
                 x, layer_logdet = layer(x)
             else:
                 x, z, layer_logdet = layer(x)
@@ -296,7 +296,7 @@ class FastFlowLevel(nn.Module):
         return x
 
 class FastFlow(nn.Module):
-    def __init__(self, n_blocks=2, block_size=16, image_size=(1, 28, 28), actnorm=False):
+    def __init__(self, n_blocks=3, block_size=48, image_size=(3, 32, 32), actnorm=False):
         super(FastFlow, self).__init__()
         size = image_size
         C_in, H, W = size
@@ -311,7 +311,8 @@ class FastFlow(nn.Module):
         self.preprocess = Preprocess(size=size)
         self.fastflow_levels = nn.ModuleList([FastFlowLevel((C_in * (2**i), H//(2**i), W//(2**i)), block_size, actnorm) for i in range(n_levels)])
         self.squeeze = Squeeze()
-        self.fastflow_step = nn.Sequential(*[FastFlowStep(self.output_size, actnorm) for _ in range(block_size)])
+        self.fastflow_step = nn.ModuleList([FastFlowStep(self.output_size, actnorm) for _ in range(block_size)])
+        # self.fastflow_step = FastFlowStep(self.output_size, actnorm)
         self.gaussianize = Gaussianize(C_out)
         self.base_distribution = NegativeGaussianLoss(size=self.output_size)
 
@@ -320,25 +321,31 @@ class FastFlow(nn.Module):
         zs = []
         x, layer_logdet = self.preprocess(x)
         logdet += layer_logdet
-        # print("After preprocess", x.shape, torch.cuda.current_device())
-        for module in self.fastflow_levels:
+        # print("After preprocess", logdet)
+        # print("Before levels X:", x[0])
+        for i, module in enumerate(self.fastflow_levels):
             x, z, layer_logdet = module(x)
             logdet += layer_logdet
             zs.append(z)
-        # print("After fastflow_levels", x.shape, torch.cuda.current_device())
+        #     print(f"After level-{i} X:", x[0])
+        # print("After fastflow_levels", logdet)
         x, layer_logdet = self.squeeze(x)
         logdet += layer_logdet
         # print("Outside Squeeze:", x.shape, torch.cuda.current_device())
+        # print("Before fastlow step X:", x[0])
+        # x, layer_logdet = self.fastflow_step(x)
+        # logdet += layer_logdet
         for module in self.fastflow_step:
             x, layer_logdet = module(x)
             logdet += layer_logdet
-        
-        # print("After Outside step", x.shape, torch.cuda.current_device())
+
+        # print("After Outside step", logdet)
         # x, layer_logdet = self.gaussianize(torch.zeros_like(x), x)
         # logdet += layer_logdet     
-        logdet += self.base_distribution.log_prob(x)     
+        logdet += self.base_distribution.log_prob(x)  
         zs.append(x)
-        # print("Output:", x.shape, torch.cuda.current_device())
+        # print('After fastflow step, X:', x[0])
+        # print("Output:", logdet)
         return zs, logdet#x, logdet
     
     def reverse(self, n_samples=1, zs=None, z_std=1.0):
@@ -349,11 +356,13 @@ class FastFlow(nn.Module):
             zs = [zs]
         
         # z = self.gaussianize.reverse(torch.zeros_like(zs[-1]),zs[-1])
+        z = zs[-1]
         # print("After inverse gaussianize", z.shape)
-        x = zs[-1]
         for module in reversed(self.fastflow_step):
-            x = module.reverse(x)
-        x = self.squeeze.reverse(x)
+            z = module.reverse(z)
+
+        # x = self.fastflow_step.reverse(z)
+        x = self.squeeze.reverse(z)
 
         for i, m in enumerate(reversed(self.fastflow_levels)):
             
@@ -388,8 +397,6 @@ class FastFlow(nn.Module):
         zs, _ = self.forward(x)
         x = self.reverse(n_samples=x.shape[0], zs=[zs[-1]])   
         return x
-
-
 # 
         
 if __name__ == '__main__':
@@ -399,7 +406,7 @@ if __name__ == '__main__':
     date_time = now.strftime("%d:%m:%Y %H:%M:%S")
     lr = 1e-3
     optimizer_ = 'Adam'
-    scheduler_ = 'Step_LR_25_0.1'
+    scheduler_ = 'Exponential_0.99997'
 
     data_dir = '/scratch/aditya.kallappa/Imagenet'
 
@@ -409,14 +416,14 @@ if __name__ == '__main__':
         multi_gpu = True
     run_name = f'{optimizer_}_{scheduler_}_{lr}_{date_time}'
     config = {
-        'name': f'3L-32K FastFlow_imagenet32_{run_name}',
+        'name': f'3L-48K FastFlow_Imagenet32_{run_name}',
         'eval_epochs': 1,
         'sample_epochs': 1,
         'log_interval': 100,
         'lr': lr,
         'num_blocks': 3,
-        'block_size': 28,
-        'batch_size': 400,
+        'block_size': 48,
+        'batch_size': 300,
         'modified_grad': False,
         'add_recon_grad': False,
         'sym_recon_grad': False,
@@ -426,22 +433,23 @@ if __name__ == '__main__':
         'recon_loss_weight': 0.0,
         'sample_true_inv': False,
         'plot_recon': True,
-        'grad_clip_norm': None,
+        'grad_clip_norm': 1.0,
         'dataset': 'imagenet32',
-        'resolution': 32,
         'run_name': f'{run_name}',
-        'wandb_project': 'fast-flow-imagenet32',
+        'wandb_project': 'fast-flow-imagenet32-GC',
         'Optimizer': optimizer_,
         'Scheduler': scheduler_,
-        'multi_gpu': multi_gpu
+        'multi_gpu': multi_gpu,
+        'loss_bpd': False,
+        'resolution':32
     }
 
-    
-    # train_loader, val_loader, test_loader = load_data_cifar(data_aug=True, batch_size=config['batch_size'])
-    train_loader, val_loader, test_loader = load_data_imagenet32(data_aug=True, 
-                                                                 batch_size=config['batch_size'],
-                                                                 resolution=config['resolution'],
-                                                                 data_dir=data_dir)
+    # config['batch_size'] *= torch.cuda.device_count()
+
+    train_loader, val_loader, test_loader = load_data(data_aug=True, 
+                                                      batch_size=config['batch_size'],
+                                                      resolution=config['resolution'],
+                                                      data_dir=data_dir)
 
     model = FastFlow(n_blocks=config['num_blocks'],
                      block_size=config['block_size'],

@@ -6,7 +6,7 @@ pyximport.install(
     inplace=True,
     setup_args={"include_dirs": np.get_include()},
     )
-import snf.layers.emerging.inverse_op_cython as inverse_op_cython
+import layers.emerging.inverse_op_cython as inverse_op_cython
 
 
 class Inverse():

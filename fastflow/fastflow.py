@@ -21,10 +21,10 @@ class FastFlowUnit(nn.Module):
         out_channels = in_channels // 4
         
         
-        self.conv_tl = PaddedConv2d(out_channels, out_channels, kernel_size, order='TL')
-        self.conv_tr = PaddedConv2d(out_channels, out_channels, kernel_size, order='TR')
-        self.conv_bl = PaddedConv2d(out_channels, out_channels, kernel_size, order='BL')
-        self.conv_br = PaddedConv2d(out_channels, out_channels, kernel_size, order='BR')
+        self.conv_tl = PaddedConv2d(out_channels, out_channels, kernel_size, order='TL')#, bias=True)
+        self.conv_tr = PaddedConv2d(out_channels, out_channels, kernel_size, order='TR')#, bias=True)
+        self.conv_bl = PaddedConv2d(out_channels, out_channels, kernel_size, order='BL')#, bias=True)
+        self.conv_br = PaddedConv2d(out_channels, out_channels, kernel_size, order='BR')#, bias=True)
         
 
     

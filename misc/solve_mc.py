@@ -2,6 +2,8 @@ import torch
 import numpy as np
 from matplotlib import pyplot as plt
 import torch.nn as nn
+from matplotlib import cm
+from matplotlib.colors import ListedColormap, LinearSegmentedColormap
 
 #torch.random.manual_seed(10)
 
@@ -146,7 +148,7 @@ def main():
     B = 1
     C = 3
     k_size = (3, 3)
-    img_size = (28, 28)
+    img_size = (5, 5)
     H, W = img_size[0], img_size[1]
     conv_w = torch.randn(k_size[0] * k_size[1] * C * C).reshape(C, C, k_size[0], k_size[1])
     for c_out in range(C):
@@ -172,5 +174,89 @@ def main():
 
 if __name__ == '__main__':
 
-    main()
+    # main()
+    B = 1
+    C = 2
+    k_size = (3, 3)
+    img_size = (4, 4)
+    H, W = img_size[0], img_size[1]
+    conv_w = torch.rand(k_size[0] * k_size[1] * C * C).reshape(C, C, k_size[0], k_size[1])
+    # conv_w[conv_w >= 0.95] = 0.85
+    # conv_w[conv_w <= 0.05] = 0.10
+    for c_out in range(C):
+        conv_w[c_out, c_out, -1, -1] = 1.0
+        conv_w[c_out, c_out+1:, -1, -1] = 0.0
+    x = torch.randn(H * W * C).reshape(B, C, H, W).to(torch.float32)
+
+    _, M = construct_matrix(x, conv_w)
+
+    # # for i in range(len(M)):
+    # #     print(M[i, i])
+
+    top = cm.get_cmap('hot_r', 128)
+    bottom = cm.get_cmap('Blues', 128)
+
+    newcolors = np.vstack((top(np.linspace(0, 1, 128)),
+                        bottom(np.linspace(0, 1, 128))))
+    newcmp = ListedColormap(newcolors, name='hotBlues')
+
+    # x_ticks = [h*W*C for h in range(H+1)]
+    # y_ticks = [w*W*C for w in range(H+1)]
+    # fig, ax = plt.subplots(figsize=(15, 15))
+    # ax.matshow(M.numpy(), cmap=newcmp, extent=[0, H*W*C, 0, H*W*C])
+    # ax.set_xticks(x_ticks)
+    # ax.set_yticks(y_ticks)
+    # ax.set_xticklabels([])
+    # ax.set_yticklabels([])
+    # plt.grid(color='black', linewidth=1)
+    # plt.savefig("matrix.png", bbox_inches='tight')
+
+    # plt.show()
+
+    fig, ax = plt.subplots(1, 2, figsize=(5, 10))
+    x_ticks2 = [h*W*C for h in range(H+1)]
+    y_ticks2 = [w*W*C for w in range(H+1)]
+    # fig, ax = plt.subplots(figsize=(15, 15))
+    ax[1].matshow(M.numpy(), cmap=newcmp, extent=[0, H*W*C, 0, H*W*C])
+    ax[1].set_xticks(x_ticks2)
+    ax[1].set_yticks(y_ticks2)
+    ax[1].set_xticklabels([])
+    ax[1].set_yticklabels([])
+    ax[1].grid(color='black', linewidth=1)
+    
+    H, W = 6, 6
+    M2 = np.ones(shape=(H, W))
+    value = 1
+    alpha = 0.9
+    m = max(H, W)
+    n = min(H, W)
+
+    for d in range(H + W - 1):
+        if (d < n):
+            for i in range(d + 1):
+                M2[i, d - i] =  value
+        else:
+            if d < m:
+                for i in range(n):
+                    M2[i, d - i] = value
+            else:
+                temp = d - m + 1
+                for i in range(temp, m):
+                    M2[i, d - i] = value
+        value = value * alpha
+    M2[-2, -1] = M[-1, -2] = 0.2
+    M2[-1, -1] = 0
+
+    
+    ax[0].matshow(M2, cmap='tab20_r', extent=[0, M2.shape[0], 0, M2.shape[1]])
+    ax[0].set_xticks(range(M2.shape[0]))
+    ax[0].set_yticks(range(M2.shape[1]))
+    ax[0].set_xticklabels([])
+    ax[0].set_yticklabels([])
+    ax[0].grid(color='black', linewidth=1)
+
+    plt.savefig('2.png', bbox_inches='tight')
+    plt.plot()
+    
+    
 

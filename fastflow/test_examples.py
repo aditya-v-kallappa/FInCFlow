@@ -1,5 +1,5 @@
 import torch
-
+import numpy as np
 from test_layers import *
 
 
@@ -176,7 +176,7 @@ from test_layers import *
 
 # test_FastFlow(
 #     # /home/aditya.kallappa/Research/NormalizingFlows/FastFlow/fastflow
-#     # checkpoint_path="./wandb/run-20220329_113439-39od8z5l/files/checkpoint.tar",
+#     checkpoint_path="./wandb/3L-32K_FastFlow_CIFAR_Epoch_14.tar",
 #     true_inverse=True,
 #     batch_size=100,
 #     plot=True
@@ -194,11 +194,6 @@ from test_layers import *
 
 # test_FastFlowStep(
 #     x=torch.rand((10, 20, 50, 100)),         #cannot be tested with is_input=False
-#     is_input=True
-# )
-
-# test_FastFlow_(
-#     x=torch.rand((10, 3, 32, 32)),         #cannot be tested with is_input=False
 #     is_input=True
 # )
 
@@ -225,16 +220,162 @@ from test_layers import *
 # test_inverse_PaddedConv2d(in_channels=10, out_channels=None, kernel_size=(3, 3), bias=True, order='BL', batch_size=10, image_size=(50, 50))
 # test_inverse_PaddedConv2d(in_channels=20, out_channels=None, kernel_size=(5, 5), bias=True, order='BR', batch_size=100, image_size=(128, 128))
 # test_inverse_PaddedConv2d(in_channels=50, out_channels=None, kernel_size=(3, 3), bias=True, order='TL', batch_size=10, image_size=(256, 256))
+
+# test_SigmoidFlow(
+#     x = torch.randn(1, 12, 32, 32)
+# )
+
+
+# test_FastFlowSigmoid(
+#     n_blocks=3,
+#     block_size=32,
+#     batch_size=64,
+#     image_size=(3, 32, 32)
+# )
+
+
+
 # test_inverse_Glow_MNIST(n_blocks=2, block_size=16, batch_size=100, image_size=(1, 28, 28))
 # test_inverse_Glow_MNIST(n_blocks=2, block_size=16, batch_size=1, image_size=(1, 28, 28))
+# test_inverse_Glow_CIFAR(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32))
+# test_inverse_Glow_Imagenet32(n_blocks=3, block_size=48, batch_size=100, image_size=(3, 32, 32))
+# test_inverse_Glow_Imagenet64(n_blocks=4, block_size=48, batch_size=100, image_size=(3, 64, 64))
 # test_inverse_FastFlow_MNIST(n_blocks=2, block_size=16, batch_size=1, image_size=(1, 28, 28))
 # test_inverse_FastFlow_MNIST(n_blocks=2, block_size=16, batch_size=50, image_size=(1, 28, 28))
-test_inverse_FastFlow_CIFAR(n_blocks=3, block_size=28, batch_size=1, image_size=(3, 32, 32))
+# test_inverse_FastFlow_CIFAR2(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32))
 # test_inverse_FastFlow_CIFAR(n_blocks=3, block_size=32, batch_size=100, image_size=(3, 32, 32))
 # test_inverse_FastFlow_CIFAR(n_blocks=3, block_size=48, batch_size=1, image_size=(3, 32, 32))
 # test_inverse_FastFlow_CIFAR(n_blocks=3, block_size=48, batch_size=100, image_size=(3, 32, 32))
 
 
-# test_inverse_FastFlow_Imagenet64(n_blocks=3, block_size=32, batch_size=1, image_size=(3, 64, 64))
+# test_inverse_FastFlow_Imagenet64(n_blocks=4, block_size=48, batch_size=100, image_size=(3, 64, 64))
+# test_inverse_FastFlow_Imagenet32(n_blocks=3, block_size=48, batch_size=100, image_size=(3, 32, 32))
 # test_inverse_FastFlow_Imagenet64(n_blocks=4, block_size=50, batch_size=100, image_size=(3, 64, 64))
 
+# test_inverse_FastFlow_CIFAR(n_blocks=3, block_size=32, batch_size=1, image_size=(3, 32, 32))
+# test_inverse_FastFlow_CIFAR_modified(n_blocks=4, block_size=6, T=8, batch_size=1, image_size=(3, 32, 32))
+# test_inverse_Glow_MNIST(n_blocks=3, block_size=32, batch_size=1, image_size=(3, 32, 32))
+# test_inverse_SNF_MNIST()
+# test_inverse_SNF_CIFAR()
+# test_inverse_SNF_Imagenet32()
+# test_inverse_SNF_Imagenet64()
+
+batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
+
+# for b in batch_sizes:
+#     answer = []
+#     answer.append(test_timings(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 16, 16)))
+#     answer.append(test_timings(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 16, 32)))
+#     answer.append(test_timings(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 32, 32)))
+#     answer.append(test_timings(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 32, 64)))
+#     answer.append(test_timings(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 64, 64)))
+#     answer.append(test_timings(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 64, 128)))
+#     answer.append(test_timings(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 128, 128)))
+#     # answer.append(test_timings(n_blocks=2, block_size=16, batch_size=b, image_size=(1, 256, 256)))
+#     # answer.append(test_timings(n_blocks=2, block_size=16, batch_size=b, image_size=(3, 32, 64))
+#     # answer.append(test_timings(n_blocks=2, block_size=16, batch_size=b, image_size=(3, 64, 64))
+#     print("*"*100)
+#     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 8, 8))
+#     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 8, 16))
+#     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 16, 16))
+#     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 16, 32))
+#     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 32, 32))
+#     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 32, 64))
+#     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 64, 64))
+#     np_answer = np.array(answer)
+#     np.save(f'numpy_files/fastflow_{b}.npy', np_answer)
+
+for b in batch_sizes:
+    answer = []
+    answer.append(test_timings_CINC(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 16, 16)))
+    answer.append(test_timings_CINC(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 16, 32)))
+    answer.append(test_timings_CINC(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 32, 32)))
+    answer.append(test_timings_CINC(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 32, 64)))
+    answer.append(test_timings_CINC(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 64, 64)))
+    answer.append(test_timings_CINC(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 64, 128)))
+    answer.append(test_timings_CINC(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 128, 128)))
+    # answer.append(test_timings(n_blocks=2, block_size=16, batch_size=b, image_size=(1, 256, 256)))
+    # answer.append(test_timings(n_blocks=2, block_size=16, batch_size=b, image_size=(3, 32, 64))
+    # answer.append(test_timings(n_blocks=2, block_size=16, batch_size=b, image_size=(3, 64, 64))
+    print("*"*100)
+    # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 8, 8))
+    # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 8, 16))
+    # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 16, 16))
+    # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 16, 32))
+    # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 32, 32))
+    # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 32, 64))
+    # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 64, 64))
+    np_answer = np.array(answer)
+    np.save(f'numpy_files/cinc_{b}.npy', np_answer)
+
+# for b in batch_sizes:
+#     answer = []
+#     answer.append(test_timings_Emerging(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 16, 16)))
+#     answer.append(test_timings_Emerging(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 16, 32)))
+#     answer.append(test_timings_Emerging(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 32, 32)))
+#     answer.append(test_timings_Emerging(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 32, 64)))
+#     answer.append(test_timings_Emerging(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 64, 64)))
+#     answer.append(test_timings_Emerging(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 64, 128)))
+#     answer.append(test_timings_Emerging(n_blocks=2, block_size=10, batch_size=b, image_size=(2, 128, 128)))
+#     # answer.append(test_timings(n_blocks=2, block_size=16, batch_size=b, image_size=(1, 256, 256)))
+#     # answer.append(test_timings(n_blocks=2, block_size=16, batch_size=b, image_size=(3, 32, 64))
+#     # answer.append(test_timings(n_blocks=2, block_size=16, batch_size=b, image_size=(3, 64, 64))
+#     print("*"*100)
+# #     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 8, 8))
+# #     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 8, 16))
+# #     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 16, 16))
+# #     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 16, 32))
+# #     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 32, 32))
+# #     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 32, 64))
+# #     # answer.append(test_timings(n_blocks=2, block_size=50, batch_size=b, image_size=(3, 64, 64))
+#     np_answer = np.array(answer)
+#     np.save(f'numpy_files/emerging_{b}.npy', np_answer)
+
+# torch.cuda.empty_cache()
+# test_timings(n_blocks=2, block_size=16, batch_size=1, image_size=(1, 128, 128))
+# torch.cuda.empty_cache()
+# test_timings(n_blocks=2, block_size=16, batch_size=1, image_size=(1, 256, 256))
+
+# test_inverse_Emerging_MNIST()
+# test_inverse_Emerging_CIFAR()
+# test_inverse_Emerging_Imagenet32()
+# test_inverse_Emerging_Imagenet64()
+# print("*"*100)
+# test_timings_Emerging(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 8, 8))
+# test_timings_Emerging(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 8, 16))
+# test_timings_Emerging(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 16, 16))
+# test_timings_Emerging(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 16, 32))
+# test_timings_Emerging(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 32, 32))
+# test_timings_Emerging(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 32, 64))
+# test_timings_Emerging(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 64, 64))
+
+# print("*"*100)
+
+# test_timings_Emerging(n_blocks=2, block_size=48, batch_size=100, image_size=(3, 8, 8))
+# test_timings_Emerging(n_blocks=2, block_size=48, batch_size=100, image_size=(3, 8, 16))
+# test_timings_Emerging(n_blocks=2, block_size=48, batch_size=100, image_size=(3, 16, 16))
+# test_timings_Emerging(n_blocks=2, block_size=48, batch_size=100, image_size=(3, 16, 32))
+# test_timings_Emerging(n_blocks=2, block_size=48, batch_size=100, image_size=(3, 32, 32))
+# test_timings_Emerging(n_blocks=2, block_size=48, batch_size=100, image_size=(3, 32, 64))
+# test_timings_Emerging(n_blocks=2, block_size=48, batch_size=100, image_size=(3, 64, 64))
+
+
+# test_inverse_CINCFlow_CIFAR()
+# test_inverse_CINCFlow_Imagenet32()
+# test_inverse_CINCFlow_Imagenet64()
+
+# test_timings_CINC(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 8, 8))
+# test_timings_CINC(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 8, 16))
+# test_timings_CINC(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 16, 16))
+# test_timings_CINC(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 16, 32))
+# test_timings_CINC(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 32, 32))
+# test_timings_CINC(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 32, 64))
+# test_timings_CINC(n_blocks=2, block_size=16, batch_size=100, image_size=(3, 64, 64))
+# print("*"*100)
+# test_timings_CINC(n_blocks=2, block_size=50, batch_size=100, image_size=(3, 8, 8))
+# test_timings_CINC(n_blocks=2, block_size=50, batch_size=100, image_size=(3, 8, 16))
+# test_timings_CINC(n_blocks=2, block_size=50, batch_size=100, image_size=(3, 16, 16))
+# test_timings_CINC(n_blocks=2, block_size=50, batch_size=100, image_size=(3, 16, 32))
+# test_timings_CINC(n_blocks=2, block_size=50, batch_size=100, image_size=(3, 32, 32))
+# test_timings_CINC(n_blocks=2, block_size=50, batch_size=100, image_size=(3, 32, 64))
+# test_timings_CINC(n_blocks=2, block_size=50, batch_size=100, image_size=(3, 64, 64))

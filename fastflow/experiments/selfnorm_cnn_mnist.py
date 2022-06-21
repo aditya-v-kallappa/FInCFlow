@@ -2,16 +2,16 @@ import torch
 from torch import optim
 from torch.optim.lr_scheduler import StepLR
 
-from snf.layers import Dequantization, Normalization
-from snf.layers.distributions.uniform import UniformDistribution
-from snf.layers.flowsequential import FlowSequential
-from snf.layers.selfnorm import SelfNormConv
-from snf.layers.activations import SmoothLeakyRelu, SplineActivation, Identity
-from snf.layers.squeeze import Squeeze
-from snf.layers.transforms import LogitTransform
-from snf.train.losses import NegativeGaussianLoss
-from snf.train.experiment import Experiment
-from snf.datasets.mnist import load_data
+from layers import Dequantization, Normalization
+from layers.distributions.uniform import UniformDistribution
+from layers.flowsequential import FlowSequential
+from layers.selfnorm import SelfNormConv
+from layers.activations import SmoothLeakyRelu, SplineActivation, Identity
+from layers.squeeze import Squeeze
+from layers.transforms import LogitTransform
+from train.losses import NegativeGaussianLoss
+from train.experiment import Experiment
+from datasets.mnist import load_data
 
 activations = {
     'SLR':lambda size: SmoothLeakyRelu(alpha=0.3),

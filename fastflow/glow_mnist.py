@@ -17,12 +17,12 @@ from datasets.mnist import load_data
 
 
 def create_model(num_blocks=2, block_size=16, sym_recon_grad=False, 
-                 actnorm=False, split_prior=False, recon_loss_weight=1.0):
+                 actnorm=False, split_prior=False, recon_loss_weight=1.0, current_size=(1, 28, 28)):
 
-    current_size = (1, 28, 28)
+    current_size = current_size
     alpha = 1e-6
     layers = [
-        Dequantization(UniformDistribution(size=(1, 28, 28))),
+        Dequantization(UniformDistribution(size=current_size)),
         Normalization(translation=0, scale=256),
         Normalization(translation=-alpha, scale=1 / (1 - 2 * alpha)),
         LogitTransform(),

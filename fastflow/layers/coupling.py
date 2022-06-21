@@ -58,9 +58,13 @@ class Coupling(FlowLayer):
         self.net = nn.Sequential(nn.Conv2d(in_channels, width,
                                            kernel_size=(3,3), padding=(1,1)),
                                  nn.ReLU(),
+                                #  nn.ELU(inplace=True),
                                  nn.Conv2d(width, width, (1,1)),
                                  nn.ReLU(),
+                                #  nn.ELU(inplace=True),
                                  Conv2dZero(width, n_channels))
+                                #  nn.Conv2d(width, 2 * in_channels,
+                                #            kernel_size=(3,3), padding=(1,1)))
 
     def get_xs_logs_t(self, x, context=None):
         assert (context is not None) == self.uses_context       

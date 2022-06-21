@@ -1,24 +1,24 @@
 import torch
 from torch import optim
-from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
+from torch.optim.lr_scheduler import StepLR
 
 from layers import Dequantization, Normalization
 from layers.distributions.uniform import UniformDistribution
 from layers.splitprior import SplitPrior
 from layers.flowsequential import FlowSequential
-from layers.selfnorm import SelfNormConv
+from layers.conv1x1 import Conv1x1
 from layers.actnorm import ActNorm
 from layers.squeeze import Squeeze
 from layers.transforms import LogitTransform
 from layers.coupling import Coupling
 from train.losses import NegativeGaussianLoss
 from train.experiment import Experiment
-from datasets.imagenet import load_data
+from datasets.cifar10 import load_data
+from layers.emerging.emerging_module import Emerging
 
-
-def create_model(num_blocks=3, block_size=48, sym_recon_grad=False, 
-                 actnorm=True, split_prior=True, recon_loss_weight=1000.0):
-    current_size = (3, 64, 64)
+def create_model(num_blocks=3, block_size=32, sym_recon_grad=False, 
+                 actnorm=False, split_prior=False, recon_loss_weight=1.0, image_size=(3, 32, 32)):
+    current_size = image_size
 
     alpha = 1e-6
     layers = [
@@ -35,11 +35,8 @@ def create_model(num_blocks=3, block_size=48, sym_recon_grad=False,
         for k in range(block_size):
             if actnorm:
                 layers.append(ActNorm(current_size[0]))
-            
-            layers.append(SelfNormConv(current_size[0], current_size[0], (1, 1), 
-                                       bias=True, stride=1, padding=0,
-                                       sym_recon_grad=sym_recon_grad, 
-                                       recon_loss_weight=recon_loss_weight))
+            # layers.append(Conv1x1(current_size[0]))
+            layers.append(Emerging(current_size[0]))
             layers.append(Coupling(current_size))
 
         if split_prior and l < num_blocks - 1:
@@ -52,32 +49,28 @@ def create_model(num_blocks=3, block_size=48, sym_recon_grad=False,
 
 def main():
     config = {
-        'name': '3L-48K Glow SNF Recon1000 ImageNet',
+        'name': '3L-32K Emerging CIFAR',
         'eval_epochs': 1,
         'sample_epochs': 1,
         'log_interval': 100,
         'lr': 1e-3,
         'num_blocks': 3,
-        'block_size': 48,
-        'batch_size': 64,
-        'modified_grad': True,
-        'add_recon_grad': True,
+        'block_size': 32,
+        'batch_size': 100,
+        'modified_grad': False,
+        'add_recon_grad': False,
         'sym_recon_grad': False,
         'actnorm': True,
         'split_prior': True,
         'activation': 'None',
-        'recon_loss_weight': 1000.0,
-        'sample_true_inv': True,
-        'plot_recon': True,
-        'vis_epochs': 10_000,
-        'grad_clip_norm': 10_000,
-        'warmup_epochs': 0,
-        'step_epochs': 1,
-        'step_gamma': 1.0,
+        'recon_loss_weight': 0.0,
+        'sample_true_inv': False,
+        'plot_recon': False,
+        'grad_clip_norm': None,
+        'warmup_epochs': 10
     }
 
-    train_loader, val_loader, test_loader = load_data(data_aug=False, resolution=32, 
-              data_dir='data/imagenet', batch_size=config['batch_size'])
+    train_loader, val_loader, test_loader = load_data(data_aug=True, batch_size=config['batch_size'])
 
     model = create_model(num_blocks=config['num_blocks'],
                          block_size=config['block_size'], 
@@ -87,7 +80,7 @@ def main():
                          recon_loss_weight=config['recon_loss_weight']).to('cuda')
 
     optimizer = optim.Adam(model.parameters(), lr=config['lr'], betas=(0.9, 0.999))
-    scheduler = StepLR(optimizer, step_size=config['step_epochs'], gamma=config['step_gamma'])
+    scheduler = StepLR(optimizer, step_size=1, gamma=1.0)
 
     experiment = Experiment(model, train_loader, val_loader, test_loader,
                             optimizer, scheduler, **config)

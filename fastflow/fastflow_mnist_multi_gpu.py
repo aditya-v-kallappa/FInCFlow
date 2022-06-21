@@ -208,7 +208,8 @@ class GlowStep(nn.Module):
         
     
     def forward(self, x):
-        logdet = 0
+        B = x.shape[0]
+        logdet = torch.zeros(B).to(x.device)
         for layer in self.glow_step:
             x, layer_logdet = layer(x)#, context=None)
             logdet += layer_logdet
@@ -310,7 +311,7 @@ class FastFlow(nn.Module):
         self.preprocess = Preprocess(size=size)
         self.fastflow_levels = nn.ModuleList([FastFlowLevel((C_in * (2**i), H//(2**i), W//(2**i)), block_size, actnorm) for i in range(n_levels)])
         self.squeeze = Squeeze()
-        self.fastflow_step = nn.Sequential(*[FastFlowStep(self.output_size, actnorm) for _ in range(block_size)])
+        self.fastflow_step = nn.Sequential(*[FastFlowStep(self.output_size, actnorm) for _ in range(1)])
         self.gaussianize = Gaussianize(C_out)
         self.base_distribution = NegativeGaussianLoss(size=self.output_size)
 
@@ -397,15 +398,15 @@ if __name__ == '__main__':
     # dd/mm/YY HH/MM/SS
     date_time = now.strftime("%d:%m:%Y %H:%M:%S")
     lr = 1e-3
-    optimizer_ = 'Adam'
-    scheduler_ = 'Step_LR_25'
+    optimizer_ = 'Adamax'
+    scheduler_ = 'Exponential_0.99997'
     multi_gpu = False
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch.cuda.device_count() > 1:
         multi_gpu = True
     run_name = f'{optimizer_}_{scheduler_}_{lr}_{date_time}'
     config = {
-        'name': f'2L-16K FastFlow_CIFAR_{run_name}',
+        'name': f'2L-16K FastFlow_MNIST_{run_name}',
         'eval_epochs': 1,
         'sample_epochs': 1,
         'log_interval': 100,
@@ -416,7 +417,7 @@ if __name__ == '__main__':
         'modified_grad': False,
         'add_recon_grad': False,
         'sym_recon_grad': False,
-        'actnorm': True,
+        'actnorm': False,
         'split_prior': True,
         'activation': 'None',
         'recon_loss_weight': 0.0,
@@ -425,7 +426,7 @@ if __name__ == '__main__':
         'grad_clip_norm': None,
         'dataset': 'MNIST',
         'run_name': f'{run_name}',
-        'wandb_project': 'fast-flow-MNIST-Matched',
+        'wandb_project': 'fast-flow-MNIST-WithoutActNorm',
         'Optimizer': optimizer_,
         'Scheduler': scheduler_,
         'multi_gpu': multi_gpu,
@@ -444,8 +445,8 @@ if __name__ == '__main__':
     model = model.to('cuda')
     
     optimizer = optim.Adamax(model.parameters(), lr=config['lr'])#, weight_decay=0.0001)
-    scheduler = StepLR(optimizer, step_size=25, gamma=0.1)
-    # scheduler = ExponentialLR(optimizer, gamma=0.99, last_epoch=-1)
+    # scheduler = StepLR(optimizer, step_size=25, gamma=0.1)
+    scheduler = ExponentialLR(optimizer, gamma=0.99997, last_epoch=-1)
     # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=3, threshold=10) 
     experiment = Experiment(model, train_loader, val_loader, test_loader,
                             optimizer, scheduler, **config)
