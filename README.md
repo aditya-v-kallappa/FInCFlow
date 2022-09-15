@@ -21,10 +21,10 @@ Generating Images using Fast Normalizing Flows with Invertible Convolution
 `conda env create -f conda_environment.yml`
 
 #### Install snf package
-Install the snf package locally for development. This allows you to run experiments with the `snf` command. At the root of the project directory run:
+Install the snf package locally for development. This allows you to run experiments with the `fastflow` command. At the root of the project directory run:
 `pip install -e .`
 
-Note that this package requires Ninja to build the C++ extensions required to efficiently compute the Fast Flow gradient, however this should be installed automatically with pytorch or 
+Note that this package requires Ninja to build the C++ extensions required to efficiently compute the Fast-Flow gradient, however this should be installed automatically with pytorch or 
 
 `pip install Ninja`
 
@@ -40,7 +40,7 @@ Make sure that you have first [created a weights and biases account](https://app
 - All models are built using the `FlowSequential` module (see fastflow/layers/flowsequential.py)
     - This module iterates through a list of `FlowLayer` or `ModifiedGradFlowLayer` modules, repeatedly transforming the input, while simultaneously accumulating the log-determinant of the jacobian of each transformation along the way.
     - Ultimately, this layer returns the total normalized log-probability of input by summing the log-probability of the transformed input under the base distribuiton, and the accumulated sum of log jacobian determinants (i.e. using the change of variables rule).
-- The `Experiment` class (see sfastflow/train/experiment.py) handles running the training iterations, evaluation, sampling, and model saving & loading.
+- The `Experiment` class (see fastflow/train/experiment.py) handles running the training iterations, evaluation, sampling, and model saving & loading.
 - All experiments can be found in `fastflow/experiments/`, and require the specification of a model, optimizer, dataset, and config dictionary. See below for the currently implemented options for the config.  
 - All layer implementations can be found in `fastflow/layers/` including the fastflow layer found at fastflow/layers/fastflow.py
 
@@ -94,12 +94,19 @@ fastflow/fastflow_mnist.py
 `set-  -n_blocks=3, block_size=32, image_size=(1, 28, 28)`
 
       python fastflow_mnist.py
+      
 ### Imagenet 32/64
 
 fastflow/fastflow_imagenet_multi_gpu.py
 
 `set-  resulotion=32/64, -n_blocks=2, block_size=16, image_size=(3, 32, 32)`
 
-      python fastflow_imagenet_multi_gpu.py      
+      python fastflow_imagenet_multi_gpu.py   
+fastflow/fastflow_celeba_multi_gpu.py
+
+`set-  resulotion=32/64/128, -n_blocks=3, block_size=32, image_size=(3, 32, 32)`
+
+      python fastflow_celeba_multi_gpu.py 
+      
 # ToDo
 
