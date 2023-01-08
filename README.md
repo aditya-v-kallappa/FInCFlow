@@ -11,7 +11,7 @@ Generating Images using Fast Normalizing Flows with Invertible Convolution
 
 ###Environment Setup
 1. Make sure you have Anaconda or Miniconda installed.
-2. Clone repo with `git clone https://github.com/aditya-v-kallappa/FastFlow/.`
+2. Clone repo with `git clone https://github.com/aditya-v-kallappa/FInCFlow/.`
 3. Go into the cloned repo: `cd FastFlow`
 4. Create the environment: `conda env create ff`
 5. Activate the environment: `source activate ff`
