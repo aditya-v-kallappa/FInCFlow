@@ -1,4 +1,4 @@
-# FastFlow
+# FInCFlow
 Generating Images using Fast Normalizing Flows with Invertible Convolution
 
 
