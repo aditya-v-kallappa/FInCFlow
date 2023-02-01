@@ -1,4 +1,4 @@
-# FInCFlow: Fast and Invertible k×k Convolutions for Normalizing Flows
+# [FInCFlow: Fast and Invertible k×k Convolutions for Normalizing Flows](https://arxiv.org/abs/2301.09266)
 ## [Paper](https://arxiv.org/abs/2301.09266) accepted: [VISAPP'23](https://visapp.scitevents.org/Home.aspx)
 ![Flow overview](misc/FInCFlow_model.png)
 
