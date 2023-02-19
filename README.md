@@ -110,6 +110,9 @@ fastflow/fastflow_celeba_multi_gpu.py
 `set-  resulotion=32/64/128, -n_blocks=3, block_size=32, image_size=(3, 32, 32)`
 
       python fastflow_celeba_multi_gpu.py 
-      
+
+# Acknowledgements
+The training and testing code in this repo is based on code in Self Normalizing Flows Github(https://github.com/akandykeller/SelfNormalizingFlows). The implementation of FInC Flow Step is based on MaCoW(https://github.com/XuezheMax/macow)
+
 # ToDo
 
