@@ -9,7 +9,7 @@ Generating Images using Fast Normalizing Flows with Invertible Convolution
 - create a python3.9 venv with all packages in requirments.txt installed in ~/venv/fastflow
 - source env.sh
 ## requirements 
-      `pip3 install torch==1.8.2 torchvision==0.9.2 torchaudio==0.8.2 --extra-index-url https://download.pytorch.org/whl/lts/1.8/cu102`
+`pip3 install torch==1.8.2 torchvision==0.9.2 torchaudio==0.8.2 --extra-index-url https://download.pytorch.org/whl/lts/1.8/cu102`
 ## Experiments
 
 ###Environment Setup
