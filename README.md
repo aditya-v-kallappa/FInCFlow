@@ -1,5 +1,5 @@
 # [FInCFlow: Fast and Invertible k×k Convolutions for Normalizing Flows](https://arxiv.org/abs/2301.09266)
-## [Paper](https://arxiv.org/abs/2301.09266) accepted: [VISAPP'23](https://visapp.scitevents.org/Home.aspx)
+## [Paper](https://www.scitepress.org/Link.aspx?doi=10.5220/0011876600003417) accepted: [VISAPP'23](https://visapp.scitevents.org/Home.aspx)
 ![Flow overview](misc/FInCFlow_model.png)
 
 Generating Images using Fast Normalizing Flows with Invertible Convolution
@@ -114,5 +114,21 @@ fastflow/fastflow_celeba_multi_gpu.py
 # Acknowledgements
 The training and testing code in this repo is based on code in Self Normalizing Flows Github(https://github.com/akandykeller/SelfNormalizingFlows). The implementation of FInC Flow Step is based on MaCoW(https://github.com/XuezheMax/macow)
 
-# ToDo
+# Citation
+
+Please use the following BibTex Code to cite our paper
+```
+@conference{visapp23,
+author={Aditya Kallappa. and Sandeep Nagar. and Girish Varma.},
+title={FInC Flow: Fast and Invertible k × k Convolutions for Normalizing Flows},
+booktitle={Proceedings of the 18th International Joint Conference on Computer Vision, Imaging and Computer Graphics Theory and Applications (VISIGRAPP 2023) - Volume 5: VISAPP},
+year={2023},
+pages={338-348},
+publisher={SciTePress},
+organization={INSTICC},
+doi={10.5220/0011876600003417},
+isbn={978-989-758-634-7},
+issn={2184-4321},
+}
+```
 
