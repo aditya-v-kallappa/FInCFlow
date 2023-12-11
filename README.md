@@ -1,9 +1,15 @@
 # [FInCFlow: Fast and Invertible k×k Convolutions for Normalizing Flows](https://arxiv.org/abs/2301.09266)
 ## [Paper](https://www.scitepress.org/Link.aspx?doi=10.5220/0011876600003417) accepted: [VISAPP'23](https://visapp.scitevents.org/Home.aspx)
-![Flow overview](misc/FInCFlow_model.png)
 
+## Thesis Defence Presentation: ![Presentation](misc/Aditya Thesis Defence.pdf) 
+
+![Flow overview](misc/FInCFlow_model.png)
 Generating Images using Fast Normalizing Flows with Invertible Convolution
 
+![Flow overview](misc/inverse_direct2.gif)
+Inverse calculation of a Lower Triangular matrix with Substitution Method
+![Flow overview](misc/inverse_finc2.gif)
+Inverse calculation of a Lower Triangular MAtrix from our method
 
 ## Developing in ada
 - create a python3.9 venv with all packages in requirments.txt installed in ~/venv/fastflow
