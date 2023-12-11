@@ -1,7 +1,7 @@
 # [FInCFlow: Fast and Invertible k×k Convolutions for Normalizing Flows](https://arxiv.org/abs/2301.09266)
 ## [Paper](https://www.scitepress.org/Link.aspx?doi=10.5220/0011876600003417) accepted: [VISAPP'23](https://visapp.scitevents.org/Home.aspx)
 
-## Thesis Defence Presentation: ![Presentation](misc/Aditya_Thesis_Defence.pdf) 
+## Thesis Defence Presentation: ![Presentation](misc/Thesis_Defence.pdf) 
 
 ![Flow overview](misc/FInCFlow_model.png)
 Generating Images using Fast Normalizing Flows with Invertible Convolution
